@@ -23,6 +23,60 @@
 
 namespace breakpad {
 
+namespace util {
+
+typedef std::map<std::wstring, std::wstring> CrashMap;
+    
+bool WriteCustomInfoToFile(const std::wstring& dump_path, const CrashMap& map) {
+    std::wstring file_path(dump_path);
+    size_t last_dot = file_path.rfind(L'.');
+    if (last_dot == std::wstring::npos)
+        return false;
+    file_path.resize(last_dot);
+    file_path += L".txt";
+
+    std::wofstream file(file_path.c_str(),
+        std::ios_base::out | std::ios_base::app | std::ios::binary);
+    if (!file.is_open())
+        return false;
+
+    CrashMap::const_iterator pos;
+    for (pos = map.begin(); pos != map.end(); ++pos) {
+        std::wstring line = pos->first;
+        line += L':';
+        line += pos->second;
+        line += L'\n';
+        file.write(line.c_str(), static_cast<std::streamsize>(line.length()));
+    }
+    return true;
+}
+
+bool ReadCustomInfoFromFile(const std::wstring& info_path, CrashMap* map) {
+    if (map == nullptr) {
+        return false;
+    }
+
+    std::wifstream metadata(info_path.c_str(), std::ios::binary);
+
+    wchar_t buffer[2048];
+    while (metadata.good()) {
+        metadata.getline(buffer, 2048);
+
+        wchar_t* key = wcstok(buffer, L":");
+        wchar_t* value = wcstok(nullptr, L":");
+        if (key == nullptr || value == nullptr) {
+            break;
+        }
+
+        (*map)[key] = value;
+    }
+
+    metadata.close();
+    return true;
+}
+
+}
+
 namespace {
 
 const wchar_t kWaitEventFormat[] = L"$1CrashServiceWaitEvent";
@@ -33,7 +87,7 @@ const wchar_t kTestPipeName[] = L"\\\\.\\pipe\\ChromeCrashServices";
 const wchar_t kGoogleReportURL[] = L"https://clients2.google.com/cr/report";
 const wchar_t kCheckPointFile[] = L"crash_checkpoint.txt";
 
-typedef std::map<std::wstring, std::wstring> CrashMap;
+using breakpad::util::CrashMap;
 
 bool CustomInfoToMap(const google_breakpad::ClientInfo* client_info,
                      const std::wstring& reporter_tag, CrashMap* map) {
@@ -46,30 +100,6 @@ bool CustomInfoToMap(const google_breakpad::ClientInfo* client_info,
   (*map)[L"rept"] = reporter_tag;
 
   return !map->empty();
-}
-
-bool WriteCustomInfoToFile(const std::wstring& dump_path, const CrashMap& map) {
-  std::wstring file_path(dump_path);
-  size_t last_dot = file_path.rfind(L'.');
-  if (last_dot == std::wstring::npos)
-    return false;
-  file_path.resize(last_dot);
-  file_path += L".txt";
-
-  std::wofstream file(file_path.c_str(),
-      std::ios_base::out | std::ios_base::app | std::ios::binary);
-  if (!file.is_open())
-    return false;
-
-  CrashMap::const_iterator pos;
-  for (pos = map.begin(); pos != map.end(); ++pos) {
-    std::wstring line = pos->first;
-    line += L':';
-    line += pos->second;
-    line += L'\n';
-    file.write(line.c_str(), static_cast<std::streamsize>(line.length()));
-  }
-  return true;
 }
 
 bool WriteReportIDToFile(const std::wstring& dump_path,
@@ -186,6 +216,10 @@ const char CrashService::kReporterTag[]       = "reporter";
 const char CrashService::kDumpsDir[]          = "dumps-dir";
 const char CrashService::kPipeName[]          = "pipe-name";
 const char CrashService::kReporterURL[]       = "reporter-url";
+const char CrashService::kSubmitBacklog[]     = "submit-backlog";
+
+using breakpad::util::WriteCustomInfoToFile;
+using breakpad::util::ReadCustomInfoFromFile;
 
 CrashService::CrashService()
     : sender_(NULL),
@@ -217,11 +251,11 @@ bool CrashService::Initialize(const base::string16& application_name,
 
   base::CommandLine& cmd_line = *base::CommandLine::ForCurrentProcess();
 
-  base::FilePath dumps_path_to_use = dumps_path;
-
   if (cmd_line.HasSwitch(kDumpsDir)) {
-    dumps_path_to_use =
+    dumps_path_ =
         base::FilePath(cmd_line.GetSwitchValueNative(kDumpsDir));
+  } else {
+    dumps_path_ = dumps_path;
   }
 
   // We can override the send reports quota with a command line switch.
@@ -254,7 +288,7 @@ bool CrashService::Initialize(const base::string16& application_name,
                                       &CrashService::OnClientDumpRequest, this,
                                       &CrashService::OnClientExited, this,
                                       NULL, NULL,
-                                      true, &dumps_path_to_use.value());
+                                      true, &dumps_path_.value());
 
   if (!dumper_) {
     LOG(ERROR) << "could not create dumper";
@@ -282,7 +316,7 @@ bool CrashService::Initialize(const base::string16& application_name,
 
   // Log basic information.
   VLOG(1) << "pipe name is " << pipe_name
-          << "\ndumps at " << dumps_path_to_use.value();
+          << "\ndumps at " << dumps_path_.value();
 
   if (sender_) {
     VLOG(1) << "checkpoint is " << checkpoint_path.value()
@@ -477,6 +511,53 @@ DWORD CrashService::AsyncSendDump(void* context) {
 }
 
 int CrashService::ProcessingLoop() {
+
+  base::CommandLine& cmd_line = *base::CommandLine::ForCurrentProcess();
+  if (cmd_line.HasSwitch(kSubmitBacklog)) {
+    VLOG(1) << "submitting backlogged crashes... ";
+
+    base::FilePath search_root = dumps_path_.Append(base::FilePath::StringType(TEXT("\\*")));
+    base::FilePath::StringType target_extension = base::FilePath::StringType(TEXT(".dmp"));
+    base::FilePath::StringType metadata_extension = base::FilePath::StringType(TEXT(".txt"));
+
+    WIN32_FIND_DATA find_data;
+    HANDLE find_handle = FindFirstFile(search_root.value().c_str(), &find_data);
+    do {
+      if ((find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY) {
+        continue;
+      }
+
+      base::FilePath fullpath = dumps_path_.Append(base::FilePath::StringType(find_data.cFileName));
+      if (fullpath.FinalExtension() != target_extension) {
+        continue;
+      }
+
+      VLOG(1) << "submitting dump " << fullpath.value();
+
+      CrashMap map;
+      base::FilePath metadata_path = fullpath.ReplaceExtension(metadata_extension);
+      ReadCustomInfoFromFile(metadata_path.value(), &map);
+
+      std::map<std::wstring, std::wstring> file_map;
+      file_map[L"upload_file_minidump"] = fullpath.value();
+      google_breakpad::ReportResult send_result =
+        sender_->SendCrashReport(reporter_url_, map, file_map, nullptr);
+
+      if (send_result == google_breakpad::RESULT_REJECTED ||
+        send_result == google_breakpad::RESULT_SUCCEEDED) {
+        VLOG(1) << "deleting " << fullpath.value();
+        DeleteFile(fullpath.value().c_str());
+        DeleteFile(metadata_path.value().c_str());
+      }
+    } while (FindNextFile(find_handle, &find_data) != 0);
+
+    FindClose(find_handle);
+    find_handle = nullptr;
+
+    VLOG(1) << "finished submitting backlog; exiting";
+    return 0;
+  }
+
   MSG msg;
   while (GetMessage(&msg, NULL, 0, 0)) {
     TranslateMessage(&msg);

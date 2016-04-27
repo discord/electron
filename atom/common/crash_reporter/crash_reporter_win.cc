@@ -31,6 +31,12 @@ typedef struct _UNWIND_INFO {
 } UNWIND_INFO, *PUNWIND_INFO;
 #endif
 
+namespace breakpad {
+namespace util {
+bool WriteCustomInfoToFile(const std::wstring& dump_path, const std::map<std::wstring, std::wstring>& map);
+}
+}
+
 namespace crash_reporter {
 
 namespace {
@@ -154,17 +160,19 @@ void CrashReporterWin::InitBreakpad(const std::string& product_name,
                                     bool skip_system_crash_handler) {
   skip_system_crash_handler_ = skip_system_crash_handler;
 
+  auto wide_product_name = base::UTF8ToUTF16(product_name);
   base::string16 pipe_name = base::ReplaceStringPlaceholders(
-      kPipeNameFormat, base::UTF8ToUTF16(product_name), NULL);
+      kPipeNameFormat, wide_product_name, NULL);
   base::string16 wait_name = base::ReplaceStringPlaceholders(
-      kWaitEventFormat, base::UTF8ToUTF16(product_name), NULL);
+      kWaitEventFormat, wide_product_name, NULL);
 
   // Wait until the crash service is started.
-  HANDLE wait_event = ::CreateEventW(NULL, TRUE, FALSE, wait_name.c_str());
-  if (wait_event != NULL) {
-    WaitForSingleObject(wait_event, 1000);
-    CloseHandle(wait_event);
-  }
+  // [discord] don't wait -- we don't start the crash process
+  // HANDLE wait_event = ::CreateEventW(NULL, TRUE, FALSE, wait_name.c_str());
+  // if (wait_event != NULL) {
+  //   WaitForSingleObject(wait_event, 1000);
+  //   CloseHandle(wait_event);
+  // }
 
   // ExceptionHandler() attaches our handler and ~ExceptionHandler() detaches
   // it, so we must explicitly reset *before* we instantiate our new handler
@@ -172,17 +180,18 @@ void CrashReporterWin::InitBreakpad(const std::string& product_name,
   breakpad_.reset();
 
   breakpad_.reset(new google_breakpad::ExceptionHandler(
-      crashes_dir.DirName().value(),
+      crashes_dir.value(),
       FilterCallback,
       MinidumpCallback,
       this,
       google_breakpad::ExceptionHandler::HANDLER_ALL,
       kSmallDumpType,
-      pipe_name.c_str(),
+      (wchar_t*)nullptr,
       GetCustomInfo(product_name, version, company_name, upload_to_server)));
 
-  if (!breakpad_->IsOutOfProcess())
-    LOG(ERROR) << "Cannot initialize out-of-process crash handler";
+  // [discord] we're intentionally in-process
+  // if (!breakpad_->IsOutOfProcess())
+  //   LOG(ERROR) << "Cannot initialize out-of-process crash handler";
 
 #ifdef _WIN64
   // Hook up V8 to breakpad.
@@ -200,6 +209,48 @@ void CrashReporterWin::InitBreakpad(const std::string& product_name,
     }
   }
 #endif
+
+  crash_map_.clear();
+  for (uintptr_t i = 0; i < custom_info_.count; ++i) {
+    crash_map_[custom_info_.entries[i].name] = custom_info_.entries[i].value;
+  }
+  crash_map_[L"rept"] = (wide_product_name + L"-crash-service").c_str();
+
+  wchar_t image[MAX_PATH] = {};
+  GetModuleFileName(nullptr, image, MAX_PATH);
+
+  crash_submit_command_ = image;
+  crash_submit_command_ += L" --reporter-url=";
+  crash_submit_command_ += base::UTF8ToUTF16(submit_url);
+  crash_submit_command_ += L" --application-name=";
+  crash_submit_command_ += wide_product_name;
+  crash_submit_command_ += L" --v=1";
+  crash_submit_command_ += L" --submit-backlog";
+  crash_submit_command_ += L" --crashes-directory=\"";
+  crash_submit_command_ += crashes_dir.value();
+  crash_submit_command_ += L"\"";
+
+  memset(crash_submit_env_, 0, sizeof(crash_submit_env_));
+  size_t env_max_len = sizeof(crash_submit_env_) / sizeof(crash_submit_env_[0]);
+  wchar_t* destination_iterator = crash_submit_env_;
+  // subprocess environment must include ELECTRON_INTERNAL_CRASH_SERVICE=1
+  wcscpy(destination_iterator, L"ELECTRON_INTERNAL_CRASH_SERVICE=1");
+  destination_iterator += wcslen(crash_submit_env_) + 1;
+  // ... and then we'll copy as much of our environment as we have room for
+  wchar_t* existing_env = GetEnvironmentStrings();
+  wchar_t* iterator = existing_env;
+  while ((*iterator)) {
+    size_t len = wcslen(iterator) + 1;
+    size_t remaining_len = env_max_len - (destination_iterator - crash_submit_env_) - 1;
+    if (len <= remaining_len) {
+      wcscpy(destination_iterator, iterator);
+      destination_iterator += len;
+    }
+    iterator += len;
+  }
+  FreeEnvironmentStrings(existing_env);
+
+  SubmitCrashBacklog();
 }
 
 void CrashReporterWin::SetUploadParameters() {
@@ -212,6 +263,17 @@ int CrashReporterWin::CrashForException(EXCEPTION_POINTERS* info) {
     TerminateProcessWithoutDump();
   }
   return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void CrashReporterWin::SubmitCrashBacklog() {
+  wchar_t buffer[8192] = {};
+  wcsncpy(buffer, crash_submit_command_.c_str(), 8191);
+
+  STARTUPINFO si;
+  memset(&si, 0, sizeof(si));
+  PROCESS_INFORMATION pi;
+  memset(&pi, 0, sizeof(pi));
+  CreateProcess(nullptr, buffer, nullptr, nullptr, FALSE, CREATE_UNICODE_ENVIRONMENT, (void*)crash_submit_env_, nullptr, &si, &pi);
 }
 
 // static
@@ -229,8 +291,11 @@ bool CrashReporterWin::MinidumpCallback(const wchar_t* dump_path,
                                         MDRawAssertionInfo* assertion,
                                         bool succeeded) {
   CrashReporterWin* self = static_cast<CrashReporterWin*>(context);
-  if (succeeded && !self->skip_system_crash_handler_)
-    return true;
+  if (succeeded) {
+    breakpad::util::WriteCustomInfoToFile((std::wstring(dump_path) + L"\\" + minidump_id + L".txt").c_str(), self->crash_map_);
+    self->SubmitCrashBacklog();
+    return !self->skip_system_crash_handler_;
+  }
   else
     return false;
 }

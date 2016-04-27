@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <map>
 
 #include "atom/common/crash_reporter/crash_reporter.h"
 #include "base/compiler_specific.h"
@@ -34,6 +35,7 @@ class CrashReporterWin : public CrashReporter {
 
   // Crashes the process after generating a dump for the provided exception.
   int CrashForException(EXCEPTION_POINTERS* info);
+  void SubmitCrashBacklog();
 
  private:
   friend struct base::DefaultSingletonTraits<CrashReporterWin>;
@@ -66,6 +68,10 @@ class CrashReporterWin : public CrashReporter {
   bool skip_system_crash_handler_;
   bool code_range_registered_;
   std::unique_ptr<google_breakpad::ExceptionHandler> breakpad_;
+
+  std::map<std::wstring, std::wstring> crash_map_;
+  std::wstring crash_submit_command_;
+  wchar_t crash_submit_env_[16384];
 
   DISALLOW_COPY_AND_ASSIGN(CrashReporterWin);
 };

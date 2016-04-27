@@ -68,6 +68,10 @@ class CrashService {
   // --reporter-url=<string>
   // Override the URL to which crash reports will be sent to.
   static const char kReporterURL[];
+  // --submit-backlog
+  // Submit any backlogged crashes and then exit the processing loop,
+  // instead of waiting around for more crashes to arrive
+  static const char kSubmitBacklog[];
 
   // Returns number of crash dumps handled.
   int requests_handled() const {
@@ -123,6 +127,8 @@ class CrashService {
   volatile LONG clients_connected_;
   volatile LONG clients_terminated_;
   base::Lock sending_;
+
+  base::FilePath dumps_path_;
 
   DISALLOW_COPY_AND_ASSIGN(CrashService);
 };

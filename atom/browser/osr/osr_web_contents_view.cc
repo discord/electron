@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "atom/browser/osr/osr_web_contents_view.h"
+#include "atom/browser/api/atom_api_web_contents.h"
 
 #include "third_party/WebKit/public/platform/WebScreenInfo.h"
 
@@ -143,6 +144,15 @@ void OffScreenWebContentsView::StartDragging(
     const gfx::Vector2d& image_offset,
     const content::DragEventSourceInfo& event_info,
     content::RenderWidgetHostImpl* source_rwh) {
+
+	auto contents_delegate = static_cast<atom::api::WebContents*>(web_contents_->GetDelegate()); //dynamic cast or ... some other signaling ideally
+	if (contents_delegate) {
+		contents_delegate->start_dragging = true;
+		contents_delegate->drop_data = drop_data;
+		contents_delegate->drag_ops = allowed_ops;
+		return;
+	}
+
   if (web_contents_)
     web_contents_->SystemDragEnded(source_rwh);
 }

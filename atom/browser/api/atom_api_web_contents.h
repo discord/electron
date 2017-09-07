@@ -16,6 +16,7 @@
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/drop_data.h"
 #include "content/public/common/favicon_url.h"
 #include "native_mate/handle.h"
 #include "ui/gfx/image/image.h"
@@ -217,6 +218,11 @@ class WebContents : public mate::TrackableObject<WebContents>,
   v8::Local<v8::Value> Debugger(v8::Isolate* isolate);
 
   WebContentsZoomController* GetZoomController() { return zoom_controller_; }
+
+  bool start_dragging = false;
+  bool dragging = false;
+  content::DropData drop_data;
+  blink::WebDragOperationsMask drag_ops = blink::WebDragOperationNone;
 
  protected:
   WebContents(v8::Isolate* isolate,

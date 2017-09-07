@@ -1413,6 +1413,25 @@ void WebContents::SendInputEvent(v8::Isolate* isolate,
     blink::WebMouseEvent mouse_event;
     if (mate::ConvertFromV8(isolate, input_event, &mouse_event)) {
       host->ForwardMouseEvent(mouse_event);
+
+	  auto pt = gfx::Point(mouse_event.x, mouse_event.y);
+	  if (type == blink::WebInputEvent::MouseMove) {
+		  if (!dragging && start_dragging) {
+			  host->DragTargetDragEnter(drop_data, pt, pt, drag_ops, mouse_event.modifiers);
+			  dragging = true;
+		  }
+		  if (dragging)
+			  host->DragTargetDragOver(pt, pt, drag_ops, mouse_event.modifiers);
+	  } else if (type == blink::WebInputEvent::MouseUp && dragging) {
+		  host->DragTargetDrop(drop_data, pt, pt, mouse_event.modifiers);
+		  host->DragSourceEndedAt(pt, pt, drag_ops);
+		  host->DragSourceSystemDragEnded();
+
+		  drop_data = {};
+		  start_dragging = false;
+		  dragging = false;
+		  drag_ops = blink::WebDragOperationNone;
+	  }
       return;
     }
   } else if (blink::WebInputEvent::isKeyboardEventType(type)) {

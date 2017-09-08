@@ -1419,10 +1419,20 @@ void WebContents::SendInputEvent(v8::Isolate* isolate,
 		  if (!dragging && start_dragging) {
 			  host->DragTargetDragEnter(drop_data, pt, pt, drag_ops, mouse_event.modifiers);
 			  dragging = true;
+
+			  auto bitmap = drag_image.bitmap();
+			  if (bitmap) {
+				  mate::Handle<NativeImage> image =
+					  NativeImage::Create(isolate, gfx::Image::CreateFrom1xBitmap(*bitmap));
+				  Emit("start-drag", image, gfx::Point(drag_image_offset.x(), drag_image_offset.y()));
+			  } else
+				  Emit("start-drag");
 		  }
 		  if (dragging)
 			  host->DragTargetDragOver(pt, pt, drag_ops, mouse_event.modifiers);
 	  } else if (type == blink::WebInputEvent::MouseUp && dragging) {
+		  Emit("stop-drag");
+
 		  host->DragTargetDrop(drop_data, pt, pt, mouse_event.modifiers);
 		  host->DragSourceEndedAt(pt, pt, drag_ops);
 		  host->DragSourceSystemDragEnded();

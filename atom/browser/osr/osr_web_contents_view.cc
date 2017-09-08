@@ -150,6 +150,8 @@ void OffScreenWebContentsView::StartDragging(
 		contents_delegate->start_dragging = true;
 		contents_delegate->drop_data = drop_data;
 		contents_delegate->drag_ops = allowed_ops;
+		contents_delegate->drag_image = image;
+		contents_delegate->drag_image_offset = image_offset;
 		return;
 	}
 

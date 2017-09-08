@@ -223,6 +223,8 @@ class WebContents : public mate::TrackableObject<WebContents>,
   bool dragging = false;
   content::DropData drop_data;
   blink::WebDragOperationsMask drag_ops = blink::WebDragOperationNone;
+  gfx::ImageSkia drag_image;
+  gfx::Vector2d drag_image_offset;
 
  protected:
   WebContents(v8::Isolate* isolate,

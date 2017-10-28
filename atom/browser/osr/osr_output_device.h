@@ -6,13 +6,15 @@
 #define ATOM_BROWSER_OSR_OSR_OUTPUT_DEVICE_H_
 
 #include "base/callback.h"
+#include "base/time/time.h"
 #include "cc/output/software_output_device.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 
 namespace atom {
 
-typedef base::Callback<void(const gfx::Rect&, const SkBitmap&)> OnPaintCallback;
+typedef base::Callback<void(const gfx::Rect&, const SkBitmap&, base::TimeTicks)>
+    OnPaintCallback;
 
 class OffScreenOutputDevice : public cc::SoftwareOutputDevice {
  public:
@@ -35,6 +37,8 @@ class OffScreenOutputDevice : public cc::SoftwareOutputDevice {
 
   std::unique_ptr<SkCanvas> canvas_;
   std::unique_ptr<SkBitmap> bitmap_;
+
+  base::TimeTicks start_timestamp_;
 
   DISALLOW_COPY_AND_ASSIGN(OffScreenOutputDevice);
 };

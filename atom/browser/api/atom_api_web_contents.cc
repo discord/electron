@@ -75,6 +75,7 @@
 #include "net/url_request/url_request_context.h"
 #include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebFindOptions.h"
+#include "third_party/skia/include/core/SkPixelRef.h"
 #include "ui/display/screen.h"
 
 #if !defined(OS_MACOSX)
@@ -1590,10 +1591,25 @@ bool WebContents::IsOffScreen() const {
   return type_ == OFF_SCREEN;
 }
 
-void WebContents::OnPaint(const gfx::Rect& dirty_rect, const SkBitmap& bitmap) {
-  mate::Handle<NativeImage> image =
-      NativeImage::Create(isolate(), gfx::Image::CreateFrom1xBitmap(bitmap));
-  Emit("paint", dirty_rect, image);
+void WebContents::OnPaint(const gfx::Rect& dirty_rect,
+                          const SkBitmap& bitmap,
+                          base::TimeTicks timestamp) {
+  SkPixelRef* ref = bitmap.pixelRef();
+  if (!ref) {
+    return;
+  }
+
+  v8::Locker locker(isolate());
+  v8::HandleScope handle_scope(isolate());
+
+  auto pixel_buffer =
+      node::Buffer::Copy(isolate(),
+                         reinterpret_cast<const char*>(ref->pixels()),
+                         bitmap.getSafeSize())
+          .ToLocalChecked();
+
+  Emit("paint", dirty_rect, pixel_buffer, bitmap.width(), bitmap.height(),
+       std::to_string(timestamp.ToInternalValue()));
 }
 
 void WebContents::StartPainting() {

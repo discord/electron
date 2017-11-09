@@ -995,6 +995,11 @@ void WebContents::SetBackgroundThrottling(bool allowed) {
   }
 
   render_widget_host_impl->disable_hidden_ = !background_throttling_;
+
+  if (render_widget_host_impl->is_hidden()) {
+    ui::LatencyInfo latency_info;
+    render_widget_host_impl->WasShown(latency_info);
+  }
 }
 
 int64_t WebContents::GetID() const {

@@ -1666,6 +1666,39 @@ void WebContents::SendInputEvent(v8::Isolate* isolate,
       } else {
         rwh->ForwardMouseEvent(mouse_event);
       }
+
+      auto* host = view->GetRenderWidgetHost();
+      auto pt = gfx::PointF(mouse_event.PositionInWidget().x, mouse_event.PositionInWidget().y);
+      if (type == blink::WebInputEvent::kMouseMove) {
+        if (!dragging && start_dragging) {
+          host->DragTargetDragEnter(drop_data, pt, pt, drag_ops, mouse_event.GetModifiers());
+          dragging = true;
+
+          auto* bitmap = drag_image.bitmap();
+          if (bitmap) {
+            mate::Handle<NativeImage> image =
+              NativeImage::Create(isolate, gfx::Image::CreateFrom1xBitmap(*bitmap));
+            Emit("start-drag", image, gfx::Point(drag_image_offset.x(), drag_image_offset.y()));
+          } else {
+            Emit("start-drag");
+          }
+        }
+        if (dragging) {
+          host->DragTargetDragOver(pt, pt, drag_ops, mouse_event.GetModifiers());
+        }
+      }
+      else if (type == blink::WebInputEvent::kMouseUp && dragging) {
+        Emit("stop-drag");
+
+        host->DragTargetDrop(drop_data, pt, pt, mouse_event.GetModifiers());
+        host->DragSourceEndedAt(pt, pt, drag_ops);
+        host->DragSourceSystemDragEnded();
+
+        drop_data = {};
+        start_dragging = false;
+        dragging = false;
+        drag_ops = blink::kWebDragOperationNone;
+      }
       return;
     }
   } else if (blink::WebInputEvent::IsKeyboardEventType(type)) {

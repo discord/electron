@@ -169,6 +169,8 @@ class OffScreenRenderWidgetHostView : public content::RenderWidgetHostViewBase,
       content::RenderWidgetHost*,
       content::WebContentsView*) override;
 
+  void RequestCompositionUpdates(bool enable);
+
 #if !defined(OS_MACOSX)
   // content::DelegatedFrameHostClient:
   int DelegatedFrameHostGetGpuMemoryBufferClientId(void) const;

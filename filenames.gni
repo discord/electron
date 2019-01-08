@@ -22,6 +22,11 @@ filenames = {
   ]
 
   lib_sources = [
+    "discord/overlay.h",
+    "discord/overlay_linux.cc",
+    "discord/overlay_mac.cc",
+    "discord/overlay_win.cc",
+
     "chromium_src/chrome/browser/process_singleton.h",
     "chromium_src/chrome/browser/process_singleton_posix.cc",
     "chromium_src/chrome/browser/process_singleton_win.cc",

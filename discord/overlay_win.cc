@@ -44,10 +44,10 @@ struct OverlayFrameData {
   size_t length;
 };
 
-bool DiscordOverlay::SendFrame(uint32_t width,
-                               uint32_t height,
-                               void* data,
-                               size_t length) {
+bool Overlay::SendFrame(uint32_t width,
+                        uint32_t height,
+                        void* data,
+                        size_t length) {
   if (process_id_ == 0) {
     return false;
   } else {
@@ -62,7 +62,7 @@ bool DiscordOverlay::SendFrame(uint32_t width,
   }
 }
 
-void DiscordOverlay::SetProcessId(uint32_t process_id) {
+void Overlay::SetProcessId(uint32_t process_id) {
   process_id_ = process_id;
 }
 

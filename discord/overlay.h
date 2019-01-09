@@ -2,7 +2,7 @@
 
 namespace discord {
 
-class DiscordOverlay {
+class Overlay {
  public:
   void SetProcessId(uint32_t process_id);
   bool SendFrame(uint32_t width, uint32_t height, void* data, size_t length);

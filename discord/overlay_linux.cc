@@ -2,13 +2,13 @@
 
 namespace discord {
 
-bool DiscordOverlay::SendFrame(uint32_t width,
-                               uint32_t height,
-                               void* data,
-                               size_t length) {
+bool Overlay::SendFrame(uint32_t width,
+                        uint32_t height,
+                        void* data,
+                        size_t length) {
   return false;
 }
 
-void DiscordOverlay::SetProcessId(uint32_t process_id) {}
+void Overlay::SetProcessId(uint32_t process_id) {}
 
 }  // namespace discord

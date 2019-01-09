@@ -81,7 +81,7 @@ class WebContents : public mate::TrackableObject<WebContents>,
   void SetDiscordOverlayProcessID(uint32_t process_id);
 
  private:
-  discord::DiscordOverlay overlay_ = {};
+  discord::Overlay overlay_ = {};
 
  public:
   enum Type {

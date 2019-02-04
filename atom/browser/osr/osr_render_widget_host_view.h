@@ -156,6 +156,10 @@ class OffScreenRenderWidgetHostView : public content::RenderWidgetHostViewBase,
       content::RenderWidgetHost*,
       content::WebContentsView*) override;
 
+  void RequestCompositionUpdates(bool enable);
+  void SelectionBoundsChanged(
+      const WidgetHostMsg_SelectionBounds_Params& params) override;
+
   const viz::LocalSurfaceIdAllocation& GetLocalSurfaceIdAllocation()
       const override;
   const viz::FrameSinkId& GetFrameSinkId() const override;

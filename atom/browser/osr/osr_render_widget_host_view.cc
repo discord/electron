@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "atom/browser/api/atom_api_web_contents.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
@@ -25,7 +26,9 @@
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"  // nogncheck
 #include "content/browser/renderer_host/render_widget_host_delegate.h"  // nogncheck
 #include "content/browser/renderer_host/render_widget_host_owner_delegate.h"  // nogncheck
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/view_messages.h"
+#include "content/common/widget_messages.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/context_factory.h"
@@ -530,7 +533,12 @@ void OffScreenRenderWidgetHostView::SetIsLoading(bool loading) {}
 void OffScreenRenderWidgetHostView::TextInputStateChanged(
     const content::TextInputState& params) {}
 
-void OffScreenRenderWidgetHostView::ImeCancelComposition() {}
+void OffScreenRenderWidgetHostView::ImeCancelComposition() {
+  if (render_widget_host_) {
+    render_widget_host_->ImeCancelComposition();
+  }
+  RequestCompositionUpdates(false);
+}
 
 void OffScreenRenderWidgetHostView::RenderProcessGone() {
   Destroy();
@@ -565,6 +573,30 @@ void OffScreenRenderWidgetHostView::Destroy() {
 }
 
 void OffScreenRenderWidgetHostView::SetTooltipText(const base::string16&) {}
+
+void OffScreenRenderWidgetHostView::SelectionBoundsChanged(
+    const WidgetHostMsg_SelectionBounds_Params& params) {
+  content::RenderWidgetHostViewBase::SelectionBoundsChanged(params);
+
+  if (!render_widget_host_) {
+    return;
+  }
+
+  auto* web_contents =
+      static_cast<content::WebContentsImpl*>(render_widget_host_->delegate());
+  if (!web_contents) {
+    return;
+  }
+
+  auto* atom_web_contents =
+      static_cast<atom::api::WebContents*>(web_contents->GetDelegate());
+  if (!atom_web_contents) {
+    return;
+  }
+
+  atom_web_contents->OnSelectionBoundsChanged(
+      params.anchor_rect, params.focus_rect, params.is_anchor_first);
+}
 
 uint32_t OffScreenRenderWidgetHostView::GetCaptureSequenceNumber() const {
   return latest_capture_sequence_number_;
@@ -617,8 +649,26 @@ OffScreenRenderWidgetHostView::CreateSyntheticGestureTarget() {
 }
 
 void OffScreenRenderWidgetHostView::ImeCompositionRangeChanged(
-    const gfx::Range&,
-    const std::vector<gfx::Rect>&) {}
+    const gfx::Range& range,
+    const std::vector<gfx::Rect>& character_bounds) {
+  if (!render_widget_host_) {
+    return;
+  }
+
+  auto* web_contents =
+      static_cast<content::WebContentsImpl*>(render_widget_host_->delegate());
+  if (!web_contents) {
+    return;
+  }
+
+  auto* atom_web_contents =
+      static_cast<atom::api::WebContents*>(web_contents->GetDelegate());
+  if (!atom_web_contents) {
+    return;
+  }
+
+  atom_web_contents->OnImeCompositionRangeChanged(range, character_bounds);
+}
 
 gfx::Size OffScreenRenderWidgetHostView::GetCompositorViewportPixelSize() {
   return gfx::ScaleToCeiledSize(GetRequestedRendererSize(),
@@ -644,6 +694,14 @@ OffScreenRenderWidgetHostView::CreateViewForWidget(
   return new OffScreenRenderWidgetHostView(
       transparent_, true, embedder_host_view->GetFrameRate(), callback_,
       render_widget_host, embedder_host_view, size());
+}
+
+void OffScreenRenderWidgetHostView::RequestCompositionUpdates(bool enable) {
+  if (!render_widget_host_) {
+    return;
+  }
+
+  render_widget_host_->RequestCompositionUpdates(false, enable);
 }
 
 const viz::FrameSinkId& OffScreenRenderWidgetHostView::GetFrameSinkId() const {

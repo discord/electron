@@ -66,44 +66,6 @@ void OffScreenVideoConsumer::OnFrameCaptured(
     callbacks->Done();
     return;
   }
-  base::ReadOnlySharedMemoryMapping mapping = data.Map();
-  if (!mapping.IsValid()) {
-    DLOG(ERROR) << "Shared memory mapping failed.";
-    return;
-  }
-  if (mapping.size() <
-      media::VideoFrame::AllocationSize(info->pixel_format, info->coded_size)) {
-    DLOG(ERROR) << "Shared memory size was less than expected.";
-    return;
-  }
-
-  // The SkBitmap's pixels will be marked as immutable, but the installPixels()
-  // API requires a non-const pointer. So, cast away the const.
-  void* const pixels = const_cast<void*>(mapping.memory());
-
-  // Call installPixels() with a |releaseProc| that: 1) notifies the capturer
-  // that this consumer has finished with the frame, and 2) releases the shared
-  // memory mapping.
-  struct FramePinner {
-    // Keeps the shared memory that backs |frame_| mapped.
-    base::ReadOnlySharedMemoryMapping mapping;
-    // Prevents FrameSinkVideoCapturer from recycling the shared memory that
-    // backs |frame_|.
-    viz::mojom::FrameSinkVideoConsumerFrameCallbacksPtr releaser;
-  };
-
-  SkBitmap bitmap;
-  bitmap.installPixels(
-      SkImageInfo::MakeN32(content_rect.width(), content_rect.height(),
-                           kPremul_SkAlphaType),
-      pixels,
-      media::VideoFrame::RowBytes(media::VideoFrame::kARGBPlane,
-                                  info->pixel_format, info->coded_size.width()),
-      [](void* addr, void* context) {
-        delete static_cast<FramePinner*>(context);
-      },
-      new FramePinner{std::move(mapping), std::move(callbacks)});
-  bitmap.setImmutable();
 
   media::VideoFrameMetadata metadata;
   metadata.MergeInternalValuesFrom(info->metadata);
@@ -114,7 +76,13 @@ void OffScreenVideoConsumer::OnFrameCaptured(
     damage_rect = content_rect;
   }
 
-  callback_.Run(damage_rect, bitmap);
+  callback_.Run(
+    content_rect.size(),
+    damage_rect,
+    base::UnsafeSharedMemoryRegion(),
+    std::move(data),
+    base::BindOnce(&viz::mojom::FrameSinkVideoConsumerFrameCallbacks::Done, std::move(callbacks))
+  );
 }
 
 void OffScreenVideoConsumer::OnStopped() {}

@@ -56,7 +56,12 @@ class AtomBeginFrameTimer;
 
 class AtomDelegatedFrameHostClient;
 
-typedef base::Callback<void(const gfx::Rect&, const SkBitmap&)> OnPaintCallback;
+typedef base::Callback<void(const gfx::Size&,
+                            const gfx::Rect&,
+                            base::UnsafeSharedMemoryRegion,
+                            base::ReadOnlySharedMemoryRegion,
+                            base::OnceCallback<void()>)>
+    OnPaintCallback;
 typedef base::Callback<void(const gfx::Rect&)> OnPopupPaintCallback;
 
 class OffScreenRenderWidgetHostView : public content::RenderWidgetHostViewBase,

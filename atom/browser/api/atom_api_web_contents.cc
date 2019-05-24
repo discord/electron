@@ -1988,11 +1988,12 @@ bool WebContents::IsOffScreen() const {
 }
 
 #if BUILDFLAG(ENABLE_OSR)
-void WebContents::OnPaint(const gfx::Rect& dirty_rect, const SkBitmap& bitmap) {
-  if (!overlay_.SendFrame(bitmap.width(), bitmap.height(), bitmap.getPixels(),
-                          bitmap.rowBytes() * bitmap.height())) {
-    Emit("paint", dirty_rect, gfx::Image::CreateFrom1xBitmap(bitmap));
-  }
+void WebContents::OnPaint(const gfx::Size& size,
+                          const gfx::Rect& dirty_rect,
+                          base::UnsafeSharedMemoryRegion unsafe_shm,
+                          base::ReadOnlySharedMemoryRegion read_shm,
+                          base::OnceCallback<void()> done_cb) {
+  overlay_.SendFrame(size, dirty_rect, std::move(unsafe_shm), std::move(read_shm), std::move(done_cb));
 }
 
 void WebContents::StartPainting() {

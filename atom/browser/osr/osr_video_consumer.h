@@ -15,7 +15,12 @@ namespace atom {
 
 class OffScreenRenderWidgetHostView;
 
-typedef base::Callback<void(const gfx::Rect&, const SkBitmap&)> OnPaintCallback;
+typedef base::Callback<void(const gfx::Size&,
+                            const gfx::Rect&,
+                            base::UnsafeSharedMemoryRegion,
+                            base::ReadOnlySharedMemoryRegion,
+                            base::OnceCallback<void()>)>
+    OnPaintCallback;
 
 class OffScreenVideoConsumer : public viz::mojom::FrameSinkVideoConsumer {
  public:

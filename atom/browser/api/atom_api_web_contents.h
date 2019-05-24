@@ -258,7 +258,11 @@ class WebContents : public mate::TrackableObject<WebContents>,
   // Methods for offscreen rendering
   bool IsOffScreen() const;
 #if BUILDFLAG(ENABLE_OSR)
-  void OnPaint(const gfx::Rect& dirty_rect, const SkBitmap& bitmap);
+  void OnPaint(const gfx::Size& size,
+                          const gfx::Rect& dirty_rect,
+                          base::UnsafeSharedMemoryRegion unsafe_shm,
+                          base::ReadOnlySharedMemoryRegion read_shm,
+                          base::OnceCallback<void()> done_cb);
   void StartPainting();
   void StopPainting();
   bool IsPainting() const;

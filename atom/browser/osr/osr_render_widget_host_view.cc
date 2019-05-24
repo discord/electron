@@ -268,8 +268,7 @@ OffScreenRenderWidgetHostView::OffScreenRenderWidgetHostView(
 
   if (content::GpuDataManager::GetInstance()->HardwareAccelerationEnabled()) {
     video_consumer_.reset(new OffScreenVideoConsumer(
-        this, base::Bind(&OffScreenRenderWidgetHostView::OnPaint,
-                         weak_ptr_factory_.GetWeakPtr())));
+        this, callback_));
     video_consumer_->SetActive(IsPainting());
     video_consumer_->SetFrameRate(GetFrameRate());
   }
@@ -799,8 +798,7 @@ OffScreenRenderWidgetHostView::CreateHostDisplayClient(
     ui::Compositor* compositor) {
   host_display_client_ = new OffScreenHostDisplayClient(
       gfx::kNullAcceleratedWidget,
-      base::Bind(&OffScreenRenderWidgetHostView::OnPaint,
-                 weak_ptr_factory_.GetWeakPtr()));
+      callback_);
   host_display_client_->SetActive(IsPainting());
   return base::WrapUnique(host_display_client_);
 }
@@ -859,6 +857,9 @@ gfx::Size OffScreenRenderWidgetHostView::SizeInPixels() {
 
 void OffScreenRenderWidgetHostView::CompositeFrame(
     const gfx::Rect& damage_rect) {
+  (void)paint_callback_running_;
+  return;
+  /*
   HoldResize();
 
   gfx::Size size_in_pixels = SizeInPixels();
@@ -895,10 +896,11 @@ void OffScreenRenderWidgetHostView::CompositeFrame(
 
   paint_callback_running_ = true;
   callback_.Run(gfx::IntersectRects(gfx::Rect(size_in_pixels), damage_rect),
-                frame);
+               frame);
   paint_callback_running_ = false;
 
   ReleaseResize();
+  */
 }
 
 void OffScreenRenderWidgetHostView::OnPopupPaint(const gfx::Rect& damage_rect) {

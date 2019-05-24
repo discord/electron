@@ -9,6 +9,7 @@
 
 #include "base/callback.h"
 #include "base/memory/shared_memory_mapping.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "components/viz/host/host_display_client.h"
 #include "services/viz/privileged/interfaces/compositing/layered_window_updater.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -17,7 +18,12 @@
 
 namespace atom {
 
-typedef base::Callback<void(const gfx::Rect&, const SkBitmap&)> OnPaintCallback;
+typedef base::Callback<void(const gfx::Size&,
+                            const gfx::Rect&,
+                            base::UnsafeSharedMemoryRegion,
+                            base::ReadOnlySharedMemoryRegion,
+                            base::OnceCallback<void()>)>
+    OnPaintCallback;
 
 class LayeredWindowUpdater : public viz::mojom::LayeredWindowUpdater {
  public:
@@ -37,6 +43,8 @@ class LayeredWindowUpdater : public viz::mojom::LayeredWindowUpdater {
   OnPaintCallback callback_;
   mojo::Binding<viz::mojom::LayeredWindowUpdater> binding_;
   std::unique_ptr<SkCanvas> canvas_;
+  gfx::Size pixel_size_;
+  base::UnsafeSharedMemoryRegion shm_;
   bool active_ = false;
 
 #if !defined(WIN32)

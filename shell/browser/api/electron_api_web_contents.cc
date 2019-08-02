@@ -1054,6 +1054,11 @@ bool WebContents::EmitNavigationEvent(
               frame_routing_id);
 }
 
+void WebContents::UpdateCursor(const content::WebCursor& cursor)
+{
+  OnCursorChange(cursor);
+}
+
 void WebContents::BindElectronBrowser(
     mojom::ElectronBrowserRequest request,
     content::RenderFrameHost* render_frame_host) {

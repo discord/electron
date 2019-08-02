@@ -373,6 +373,8 @@ class WebContents : public gin_helper::TrackableObject<WebContents>,
   gfx::ImageSkia drag_image;
   gfx::Vector2d drag_image_offset;
 
+  void UpdateCursor(const content::WebCursor& cursor);
+
  protected:
   // Does not manage lifetime of |web_contents|.
   WebContents(v8::Isolate* isolate, content::WebContents* web_contents);

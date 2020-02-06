@@ -94,3 +94,4 @@ never_let_a_non-zero-size_pixel_snap_to_zero_size.patch
 fix_hi-dpi_transitions_on_catalina.patch
 typemap.patch
 ignore_mouse_buttons_other_than_left_right_middle.patch
+use_sw_show_for_initial_state_not_shownormal.patch

@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Wed, 5 Feb 2020 17:59:26 -0800
+Subject: Use SW_SHOW for initial state, not SHOWNORMAL.
+
+This allows ui::SHOW_STATE_DEFAULT to be used to show a window without
+altering its tiling or maximize state.
+
+diff --git a/ui/views/widget/desktop_aura/desktop_window_tree_host_win.cc b/ui/views/widget/desktop_aura/desktop_window_tree_host_win.cc
+index cd47d499eead56f7228ab5e8b862c766274ea460..980c314d47fde5245dabc72f8ef6137c2867be8b 100644
+--- a/ui/views/widget/desktop_aura/desktop_window_tree_host_win.cc
++++ b/ui/views/widget/desktop_aura/desktop_window_tree_host_win.cc
+@@ -724,7 +724,7 @@ bool DesktopWindowTreeHostWin::IsModal() const {
+ }
+ 
+ int DesktopWindowTreeHostWin::GetInitialShowState() const {
+-  return CanActivate() ? SW_SHOWNORMAL : SW_SHOWNOACTIVATE;
++  return CanActivate() ? SW_SHOW : SW_SHOWNA;
+ }
+ 
+ bool DesktopWindowTreeHostWin::WillProcessWorkAreaChange() const {

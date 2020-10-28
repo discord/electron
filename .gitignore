@@ -66,3 +66,6 @@ ts-gen
 # Used to accelerate CI builds
 .depshash
 .depshash-target
+
+# Discord
+electron.sublime-workspace

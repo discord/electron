@@ -104,3 +104,4 @@ crashpad-initialize-logging.patch
 fix_properly_honor_printing_page_ranges.patch
 cherry-pick-8f5a08079948.patch
 cherry-pick-275865e8c237.patch
+ignore_mouse_buttons_other_than_left_right_middle.patch

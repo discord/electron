@@ -1,4 +1,4 @@
-import { ipcRenderer, contextBridge } from 'electron';
+import { ipcRenderer, contextBridge, discord } from 'electron';
 
 async function getOcticonSvg (name: string) {
   try {
@@ -48,6 +48,8 @@ async function initialize () {
   }
 }
 
+discord.install('discordStream');
 contextBridge.exposeInMainWorld('electronDefaultApp', {
-  initialize
+  initialize,
+  p: process
 });

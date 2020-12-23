@@ -79,6 +79,7 @@
   V(electron_common_v8_util)             \
   V(electron_renderer_context_bridge)    \
   V(electron_renderer_crash_reporter)    \
+  V(electron_renderer_discord)           \
   V(electron_renderer_ipc)               \
   V(electron_renderer_web_frame)
 

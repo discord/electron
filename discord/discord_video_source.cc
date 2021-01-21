@@ -9,6 +9,13 @@
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
+namespace {
+enum DiscordFrameType {
+  DISCORD_FRAME_NATIVE,
+  DISCORD_FRAME_I420,
+};
+}  // namespace
+
 namespace WTF {
 
 // Template specializations of [1], needed to be able to pass WTF callbacks
@@ -179,15 +186,15 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
     void* userData) {
   gfx::Size size(frame.width, frame.height);
   scoped_refptr<media::VideoFrame> video_frame;
-  auto type = static_cast<webrtc::VideoFrameBuffer::Type>(frame.type);
 
-  if (type == webrtc::VideoFrameBuffer::Type::kI420) {
+  if (frame.type == DISCORD_FRAME_I420) {
+    auto* yuv = &frame.frame.yuv;
     video_frame = media::VideoFrame::WrapExternalYuvData(
-        media::PIXEL_FORMAT_I420, size, gfx::Rect(size), size, frame.y_stride,
-        frame.u_stride, frame.v_stride, frame.y, frame.u, frame.v,
+        media::PIXEL_FORMAT_I420, size, gfx::Rect(size), size, yuv->y_stride,
+        yuv->u_stride, yuv->v_stride, yuv->y, yuv->u, yuv->v,
         base::TimeDelta::FromMicroseconds(frame.timestamp_us));
 #ifdef OS_WINDOWS
-  } else if (type == webrtc::VideoFrameBuffer::Type::kNative) {
+  } else if (frame.type == DISCORD_FRAME_NATIVE) {
     if (!gpu_factories_) {
       releaseCB(userData);
       return;
@@ -199,7 +206,7 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
         CrossThreadBindOnce(
             &VideoSourceDelegate::DoNativeFrameOnMediaThread,
             WrapRefCounted(this),
-            CrossThreadUnretained(reinterpret_cast<HANDLE>(frame.y)), size,
+            CrossThreadUnretained(frame.frame.texture_handle), size,
             frame.timestamp_us,
             CrossThreadUnretained(reinterpret_cast<void*>(releaseCB)),
             CrossThreadUnretained(userData)));

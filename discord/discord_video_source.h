@@ -1,5 +1,5 @@
-#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_DISCORD_VIDEO_SOURCE_H_
-#define THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_DISCORD_VIDEO_SOURCE_H_
+#ifndef DISCORD_DISCORD_VIDEO_SOURCE_H_
+#define DISCORD_DISCORD_VIDEO_SOURCE_H_
 
 #include <memory>
 #include <mutex>
@@ -12,14 +12,23 @@
 
 namespace blink {
 
-struct DiscordFrame {
-  int64_t timestamp_us;
+struct DiscordYUVFrame {
   uint8_t* y;
   uint8_t* u;
   uint8_t* v;
   int32_t y_stride;
   int32_t u_stride;
   int32_t v_stride;
+};
+
+struct DiscordFrame {
+  int64_t timestamp_us;
+  union {
+    DiscordYUVFrame yuv;
+#if defined(OS_WINDOWS)
+    HANDLE texture_handle;
+#endif
+  } frame;
   int32_t width;
   int32_t height;
   int32_t type;
@@ -56,4 +65,4 @@ class MODULES_EXPORT MediaStreamDiscordVideoSource
 };
 }  // namespace blink
 
-#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_DISCORD_VIDEO_SOURCE_H_
+#endif  // DISCORD_DISCORD_VIDEO_SOURCE_H_

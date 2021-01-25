@@ -251,11 +251,13 @@ std::unordered_map<
 }  // namespace blink
 
 extern "C" {
-__declspec(dllexport) void DeliverDiscordFrame(
-    const char* streamId,
-    const blink::DiscordFrame& frame,
-    blink::DiscordFrameReleaseCB releaseCB,
-    void* userData) {
+#ifdef OS_WINDOWS
+__declspec(dllexport)
+#endif
+    void DeliverDiscordFrame(const char* streamId,
+                             const blink::DiscordFrame& frame,
+                             blink::DiscordFrameReleaseCB releaseCB,
+                             void* userData) {
   blink::MediaStreamDiscordVideoSource::OnFrame(streamId, frame, releaseCB,
                                                 userData);
 }

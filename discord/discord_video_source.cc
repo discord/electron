@@ -253,6 +253,8 @@ std::unordered_map<
 extern "C" {
 #ifdef OS_WINDOWS
 __declspec(dllexport)
+#else
+__attribute__((visibility("default")))
 #endif
     void DeliverDiscordFrame(const char* streamId,
                              const blink::DiscordFrame& frame,

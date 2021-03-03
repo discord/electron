@@ -6,7 +6,7 @@
 
 namespace base {
 class SingleThreadTaskRunner;
-} // namespace base
+}  // namespace base
 
 namespace media {
 class DecoderBuffer;
@@ -19,6 +19,8 @@ namespace discord {
 namespace media {
 namespace electron {
 
+class DiscordVideoDecoderMediaThread;
+
 class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
  public:
   DiscordVideoDecoder();
@@ -29,9 +31,10 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
                                    void* userData) override;
 
  private:
+  ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
-  std::unique_ptr<::media::MediaLog> media_log_;
-  std::unique_ptr<::media::VideoDecoder> video_decoder_;
+  DiscordVideoDecoderMediaThread* media_thread_state_{};
+  bool initialized_{false};
 };
 
 }  // namespace electron

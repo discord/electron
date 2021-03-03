@@ -22,12 +22,25 @@ namespace discord {
 namespace media {
 namespace electron {
 
+#define ELECTRON_VIDEO_SUCCEEDED(val) \
+  ((val) == ::discord::media::electron::ElectronVideoStatus::Success)
+#define ELECTRON_VIDEO_RETURN_IF_ERR(expr)                        \
+  do {                                                            \
+    auto electron_video_status_tmp__ = (expr);                    \
+                                                                  \
+    if (!ELECTRON_VIDEO_SUCCEEDED(electron_video_status_tmp__)) { \
+      return electron_video_status_tmp__;                         \
+    }                                                             \
+  } while (0)
+
 enum class ElectronVideoStatus {
   Success = 0,
   Failure = 1,
   RuntimeLoadFailed = 2,
   InterfaceNotFound = 3,
   ClassNotFound = 4,
+  Unsupported = 5,
+  InvalidState = 6,
 };
 
 class IElectronUnknown {
@@ -125,6 +138,17 @@ class ElectronPointer final {
     auto old = electronObject_;
     electronObject_ = nullptr;
     return old;
+  }
+
+  static ElectronPointer Retain(T* ptr) {
+    ElectronPointer result;
+
+    if (ptr) {
+      ptr->AddRef();
+      result.electronObject_ = ptr;
+    }
+
+    return result;
   }
 
  private:
@@ -240,8 +264,6 @@ class IElectronVideoFormat : public IElectronUnknown {
   virtual ElectronVideoStatus SetProfile(ElectronVideoCodecProfile profile) = 0;
   virtual ElectronVideoStatus GetProfile(
       ElectronVideoCodecProfile* profile) = 0;
-  virtual ElectronVideoStatus SetHasAlpha(bool hasAlpha) = 0;
-  virtual ElectronVideoStatus GetHasAlpha(bool* hasAlpha) = 0;
 };
 
 class IElectronVideoFrame : public IElectronUnknown {
@@ -276,7 +298,7 @@ extern "C" {
 ELECTRON_VIDEO_EXPORT ElectronVideoStatus
 ElectronVideoCreateObject(char const* clsid,
                           char const* iid,
-                          void** ppelectronObject);
+                          void** ppElectronObject);
 }
 
 }  // namespace electron

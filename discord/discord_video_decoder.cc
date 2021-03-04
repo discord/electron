@@ -53,13 +53,45 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
 
 }  // namespace
 
+class DiscordVideoFrame
+    : ElectronObject<IElectronVideoFramePrivate, IElectronVideoFrame> {
+ public:
+  DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame);
+  uint32_t GetWidth() override;
+  uint32_t GetHeight() override;
+  ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) override;
+  ElectronVideoStatus GetMediaFrame(
+      ::media::VideoFrame** ppMediaFrame) override;
+
+ private:
+  scoped_refptr<::media::VideoFrame> frame_;
+};
+
+uint32_t DiscordVideoFrame::GetWidth() {
+  return frame_->coded_size().width();
+}
+
+uint32_t DiscordVideoFrame::GetHeight() {
+  return frame_->coded_size().height();
+}
+
+ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
+  return ElectronVideoStatus::Failure;
+}
+
+ElectronVideoStatus DiscordVideoFrame::GetMediaFrame(
+    ::media::VideoFrame** ppMediaFrame) {
+  *ppMediaFrame = frame_.get();
+  return ElectronVideoStatus::Success;
+}
+
 class DiscordVideoDecoderMediaThread {
  public:
   DiscordVideoDecoderMediaThread(
       ::media::GpuVideoAcceleratorFactories* gpu_factories,
       ElectronVideoSink* videoSink);
   ElectronVideoStatus Initialize(::media::VideoDecoderConfig const& config);
-  ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, void* userData);
+  ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, uint32_t timestamp);
 
  private:
   void InitializeOnMediaThread(const ::media::VideoDecoderConfig& config,
@@ -171,7 +203,7 @@ void DiscordVideoDecoderMediaThread::OnOutput(
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
     IElectronBuffer* buffer,
-    void* userData) {
+    uint32_t timestamp) {
   return ElectronVideoStatus::Failure;
 }
 
@@ -224,12 +256,12 @@ ElectronVideoStatus DiscordVideoDecoder::Initialize(
 }
 
 ElectronVideoStatus DiscordVideoDecoder::SubmitBuffer(IElectronBuffer* buffer,
-                                                      void* userData) {
+                                                      uint32_t timestamp) {
   if (!initialized_) {
     return ElectronVideoStatus::InvalidState;
   }
 
-  return media_thread_state_->SubmitBuffer(buffer, userData);
+  return media_thread_state_->SubmitBuffer(buffer, timestamp);
 }
 
 }  // namespace electron

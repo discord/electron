@@ -284,7 +284,7 @@ class IElectronBufferPool : public IElectronUnknown {
 };
 
 typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame,
-                               void* userData);
+                               uint32_t timestamp);
 
 class IElectronVideoDecoder : public IElectronUnknown {
  public:
@@ -292,7 +292,7 @@ class IElectronVideoDecoder : public IElectronUnknown {
   virtual ElectronVideoStatus Initialize(IElectronVideoFormat* format,
                                          ElectronVideoSink* videoSink) = 0;
   virtual ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
-                                           void* userData) = 0;
+                                           uint32_t timestamp) = 0;
 };
 
 extern "C" {

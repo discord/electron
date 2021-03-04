@@ -28,12 +28,19 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
   ElectronVideoStatus Initialize(IElectronVideoFormat* format,
                                  ElectronVideoSink* videoSink) override;
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
-                                   void* userData) override;
+                                   uint32_t timestamp) override;
 
  private:
   ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   DiscordVideoDecoderMediaThread* media_thread_state_{};
   bool initialized_{false};
+};
+
+class IElectronVideoFramePrivate : IElectronVideoFrame {
+ public:
+  static constexpr char IID[] = "IElectronVideoFramePrivate";
+  virtual ElectronVideoStatus GetMediaFrame(
+      ::media::VideoFrame** ppMediaFrame) = 0;
 };
 
 }  // namespace electron

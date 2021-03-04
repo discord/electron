@@ -41,6 +41,7 @@ enum class ElectronVideoStatus {
   ClassNotFound = 4,
   Unsupported = 5,
   InvalidState = 6,
+  TimedOut = 7,
 };
 
 class IElectronUnknown {

@@ -32,7 +32,6 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
 
  private:
   ::media::GpuVideoAcceleratorFactories* gpu_factories_;
-  scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
   DiscordVideoDecoderMediaThread* media_thread_state_{};
   bool initialized_{false};
 };

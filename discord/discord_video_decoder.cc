@@ -15,6 +15,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+#include "third_party/blink/renderer/platform/wtf/deque.h"
 
 namespace WTF {
 
@@ -54,18 +55,21 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
 }  // namespace
 
 class DiscordVideoFrame
-    : ElectronObject<IElectronVideoFramePrivate, IElectronVideoFrame> {
+    : public ElectronObject<IElectronVideoFrameMedia, IElectronVideoFrame> {
  public:
   DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame);
   uint32_t GetWidth() override;
   uint32_t GetHeight() override;
+  uint32_t GetTimestamp() override;
   ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) override;
-  ElectronVideoStatus GetMediaFrame(
-      ::media::VideoFrame** ppMediaFrame) override;
+  ::media::VideoFrame* GetMediaFrame() override;
 
  private:
   scoped_refptr<::media::VideoFrame> frame_;
 };
+
+DiscordVideoFrame::DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame)
+    : frame_(frame) {}
 
 uint32_t DiscordVideoFrame::GetWidth() {
   return frame_->coded_size().width();
@@ -75,21 +79,23 @@ uint32_t DiscordVideoFrame::GetHeight() {
   return frame_->coded_size().height();
 }
 
+uint32_t DiscordVideoFrame::GetTimestamp() {
+  return static_cast<uint32_t>(frame_->timestamp().InMicroseconds());
+}
+
 ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
   return ElectronVideoStatus::Failure;
 }
 
-ElectronVideoStatus DiscordVideoFrame::GetMediaFrame(
-    ::media::VideoFrame** ppMediaFrame) {
-  *ppMediaFrame = frame_.get();
-  return ElectronVideoStatus::Success;
+::media::VideoFrame* DiscordVideoFrame::GetMediaFrame() {
+  return frame_.get();
 }
 
 class DiscordVideoDecoderMediaThread {
  public:
   DiscordVideoDecoderMediaThread(
       ::media::GpuVideoAcceleratorFactories* gpu_factories,
-      ElectronVideoSink* videoSink);
+      ElectronVideoSink* video_sink);
   ElectronVideoStatus Initialize(::media::VideoDecoderConfig const& config);
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, uint32_t timestamp);
 
@@ -98,12 +104,21 @@ class DiscordVideoDecoderMediaThread {
                                InitCB init_cb);
   static void OnInitializeDone(base::OnceCallback<void(ElectronVideoStatus)> cb,
                                ::media::Status status);
+  void DecodeOnMediaThread();
+  void OnDecodeDone(::media::DecodeStatus status);
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
   ::media::GpuVideoAcceleratorFactories* gpu_factories_;
+  ElectronVideoSink* video_sink_;
   std::unique_ptr<::media::MediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  int32_t outstanding_decode_requests_{0};
+
+  // shared state
+  base::Lock lock_;
+  bool has_error_{false};
+  WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_;
   base::WeakPtr<DiscordVideoDecoderMediaThread> weak_this_;
   base::WeakPtrFactory<DiscordVideoDecoderMediaThread> weak_this_factory_{this};
 
@@ -112,8 +127,9 @@ class DiscordVideoDecoderMediaThread {
 
 DiscordVideoDecoderMediaThread::DiscordVideoDecoderMediaThread(
     ::media::GpuVideoAcceleratorFactories* gpu_factories,
-    ElectronVideoSink* videoSink)
+    ElectronVideoSink* video_sink)
     : gpu_factories_(gpu_factories),
+      video_sink_(video_sink),
       media_task_runner_(gpu_factories->GetTaskRunner()) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
@@ -196,15 +212,79 @@ void DiscordVideoDecoderMediaThread::OnInitializeDone(
                                    : ElectronVideoStatus::Failure);
 }
 
+void DiscordVideoDecoderMediaThread::DecodeOnMediaThread() {
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  int max_decode_requests = video_decoder_->GetMaxDecodeRequests();
+
+  while (outstanding_decode_requests_ < max_decode_requests) {
+    scoped_refptr<::media::DecoderBuffer> buffer;
+
+    {
+      base::AutoLock auto_lock(lock_);
+
+      if (pending_buffers_.empty()) {
+        return;
+      }
+
+      buffer = pending_buffers_.front();
+      pending_buffers_.pop_front();
+    }
+
+    outstanding_decode_requests_++;
+    video_decoder_->Decode(
+        std::move(buffer),
+        WTF::BindRepeating(&DiscordVideoDecoderMediaThread::OnDecodeDone,
+                           weak_this_));
+  }
+}
+
+void DiscordVideoDecoderMediaThread::OnDecodeDone(
+    ::media::DecodeStatus status) {
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  outstanding_decode_requests_--;
+
+  if (status == ::media::DecodeStatus::DECODE_ERROR) {
+    base::AutoLock auto_lock(lock_);
+
+    has_error_ = true;
+    pending_buffers_.clear();
+    return;
+  }
+
+  DecodeOnMediaThread();
+}
+
 void DiscordVideoDecoderMediaThread::OnOutput(
     scoped_refptr<::media::VideoFrame> frame) {
-  //
+  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  ElectronPointer<IElectronVideoFrame> wrapped_frame =
+      new DiscordVideoFrame(frame);
+
+  video_sink_(&*wrapped_frame);
 }
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
     IElectronBuffer* buffer,
     uint32_t timestamp) {
-  return ElectronVideoStatus::Failure;
+  scoped_refptr<::media::DecoderBuffer> decoder_buffer =
+      ::media::DecoderBuffer::CopyFrom(buffer->GetBytes(), buffer->GetLength());
+  decoder_buffer->set_timestamp(base::TimeDelta::FromMicroseconds(timestamp));
+
+  {
+    base::AutoLock auto_lock(lock_);
+
+    if (has_error_) {
+      return ElectronVideoStatus::Failure;
+    }
+
+    pending_buffers_.push_back(std::move(decoder_buffer));
+  }
+
+  blink::PostCrossThreadTask(
+      *media_task_runner_.get(), FROM_HERE,
+      CrossThreadBindOnce(&DiscordVideoDecoderMediaThread::DecodeOnMediaThread,
+                          weak_this_));
+  return ElectronVideoStatus::Success;
 }
 
 DiscordVideoDecoder::DiscordVideoDecoder() {

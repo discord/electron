@@ -272,6 +272,7 @@ class IElectronVideoFrame : public IElectronUnknown {
   static constexpr char IID[] = "IElectronVideoFrame";
   virtual uint32_t GetWidth() = 0;
   virtual uint32_t GetHeight() = 0;
+  virtual uint32_t GetTimestamp() = 0;
   virtual ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) = 0;
 };
 
@@ -283,8 +284,7 @@ class IElectronBufferPool : public IElectronUnknown {
   virtual ElectronVideoStatus CreateBuffer(IElectronBuffer** buffer) = 0;
 };
 
-typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame,
-                               uint32_t timestamp);
+typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame);
 
 class IElectronVideoDecoder : public IElectronUnknown {
  public:

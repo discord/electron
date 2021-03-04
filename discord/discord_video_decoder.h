@@ -36,11 +36,10 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
   bool initialized_{false};
 };
 
-class IElectronVideoFramePrivate : IElectronVideoFrame {
+class IElectronVideoFrameMedia : public IElectronVideoFrame {
  public:
-  static constexpr char IID[] = "IElectronVideoFramePrivate";
-  virtual ElectronVideoStatus GetMediaFrame(
-      ::media::VideoFrame** ppMediaFrame) = 0;
+  static constexpr char IID[] = "IElectronVideoFrameMedia";
+  virtual ::media::VideoFrame* GetMediaFrame() = 0;
 };
 
 }  // namespace electron

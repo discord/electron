@@ -43,10 +43,10 @@ ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
 
   if (!strcmp(clsid, "DiscordBufferPool")) {
     ptr = new DiscordBufferPool();
-  }
-
-  if (!strcmp(clsid, "DiscordVideoDecoder")) {
+  } else if (!strcmp(clsid, "DiscordVideoDecoder")) {
     ptr = new DiscordVideoDecoder();
+  } else if (!strcmp(clsid, "DiscordVideoFormat")) {
+    ptr = new DiscordVideoFormat();
   }
 
   if (!ptr) {
@@ -55,6 +55,7 @@ ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
 
   return ptr->QueryInterface(iid, ppVideoObject);
 }
+
 }  // namespace electron
 }  // namespace media
 }  // namespace discord

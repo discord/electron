@@ -7,6 +7,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_restrictions.h"
+#include "content/renderer/render_thread_impl.h"
 #include "media/base/media_log.h"
 #include "media/base/media_util.h"
 #include "media/base/video_decoder_config.h"
@@ -54,6 +55,36 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
 
 }  // namespace
 
+DiscordVideoFormat::DiscordVideoFormat() {}
+DiscordVideoFormat::~DiscordVideoFormat() {}
+
+ElectronVideoStatus DiscordVideoFormat::SetCodec(ElectronVideoCodec codec) {
+  if (static_cast<int>(codec) > static_cast<int>(kVideoCodecMax)) {
+    return ElectronVideoStatus::Failure;
+  }
+
+  codec_ = codec;
+  return ElectronVideoStatus::Success;
+}
+
+ElectronVideoCodec DiscordVideoFormat::GetCodec() {
+  return codec_;
+}
+
+ElectronVideoStatus DiscordVideoFormat::SetProfile(
+    ElectronVideoCodecProfile profile) {
+  if (static_cast<int>(profile) > static_cast<int>(VIDEO_CODEC_PROFILE_MAX)) {
+    return ElectronVideoStatus::Failure;
+  }
+
+  profile_ = profile;
+  return ElectronVideoStatus::Success;
+}
+
+ElectronVideoCodecProfile DiscordVideoFormat::GetProfile() {
+  return profile_;
+}
+
 class DiscordVideoFrame
     : public ElectronObject<IElectronVideoFrameMedia, IElectronVideoFrame> {
  public:
@@ -93,13 +124,15 @@ ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
 
 class DiscordVideoDecoderMediaThread {
  public:
-  DiscordVideoDecoderMediaThread(
-      ::media::GpuVideoAcceleratorFactories* gpu_factories,
-      ElectronVideoSink* video_sink);
-  ElectronVideoStatus Initialize(::media::VideoDecoderConfig const& config);
+  DiscordVideoDecoderMediaThread(IElectronVideoFormat* format,
+                                 ElectronVideoSink* video_sink,
+                                 void* user_data);
+  ElectronVideoStatus Initialize();
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, uint32_t timestamp);
+  void DeleteSoon();
 
  private:
+  void InitializeOnMainThread(InitCB init_cb);
   void InitializeOnMediaThread(const ::media::VideoDecoderConfig& config,
                                InitCB init_cb);
   static void OnInitializeDone(base::OnceCallback<void(ElectronVideoStatus)> cb,
@@ -108,8 +141,10 @@ class DiscordVideoDecoderMediaThread {
   void OnDecodeDone(::media::DecodeStatus status);
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
-  ::media::GpuVideoAcceleratorFactories* gpu_factories_;
+  ElectronPointer<IElectronVideoFormat> format_;
   ElectronVideoSink* video_sink_;
+  void* user_data_;
+  ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   std::unique_ptr<::media::MediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
@@ -126,19 +161,24 @@ class DiscordVideoDecoderMediaThread {
 };
 
 DiscordVideoDecoderMediaThread::DiscordVideoDecoderMediaThread(
-    ::media::GpuVideoAcceleratorFactories* gpu_factories,
-    ElectronVideoSink* video_sink)
-    : gpu_factories_(gpu_factories),
+    IElectronVideoFormat* format,
+    ElectronVideoSink* video_sink,
+    void* user_data)
+    : format_(RetainElectronVideoObject(format)),
       video_sink_(video_sink),
-      media_task_runner_(gpu_factories->GetTaskRunner()) {
+      user_data_(user_data) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
 
-ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize(
-    ::media::VideoDecoderConfig const& config) {
-  // Must not be called from media thread or deadlock.
-  DCHECK(!media_task_runner_->BelongsToCurrentThread());
+void DiscordVideoDecoderMediaThread::DeleteSoon() {
+  if (gpu_factories_) {
+    gpu_factories_->GetTaskRunner()->DeleteSoon(FROM_HERE, this);
+  } else {
+    delete this;
+  }
+}
 
+ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize() {
   ElectronVideoStatus result = ElectronVideoStatus::Failure;
 
   // This is gross, but the non "ForTesting" version of this requires an
@@ -152,10 +192,13 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize(
                           CrossThreadUnretained(&result));
 
   if (blink::PostCrossThreadTask(
-          *media_task_runner_.get(), FROM_HERE,
+          // TODO(eiz): we have to do the main thread initialization a different
+          // way as this global reference is not going to be around forever.
+          *content::RenderThreadImpl::DeprecatedGetMainTaskRunner().get(),
+          FROM_HERE,
           CrossThreadBindOnce(
-              &DiscordVideoDecoderMediaThread::InitializeOnMediaThread,
-              CrossThreadUnretained(this), config, std::move(init_cb)))) {
+              &DiscordVideoDecoderMediaThread::InitializeOnMainThread,
+              CrossThreadUnretained(this), std::move(init_cb)))) {
     // TODO(crbug.com/1076817) Remove if a root cause is found.
     // TODO(eiz): ya, I dunno, I stole it from them.
     if (!waiter.TimedWait(base::TimeDelta::FromSeconds(10)))
@@ -163,6 +206,35 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize(
   }
 
   return result;
+}
+
+void DiscordVideoDecoderMediaThread::InitializeOnMainThread(InitCB init_cb) {
+  // TODO(eiz): check if gpu_factories_ actually is non null
+  gpu_factories_ = content::RenderThreadImpl::current()->GetGpuFactories();
+  media_task_runner_ = gpu_factories_->GetTaskRunner();
+
+  ::media::VideoDecoderConfig config(
+      static_cast<::media::VideoCodec>(format_->GetCodec()),
+      static_cast<::media::VideoCodecProfile>(format_->GetProfile()),
+      ::media::VideoDecoderConfig::AlphaMode::kIsOpaque,
+      ::media::VideoColorSpace(), ::media::kNoTransformation, kDefaultSize,
+      gfx::Rect(kDefaultSize), kDefaultSize, ::media::EmptyExtraData(),
+      ::media::EncryptionScheme::kUnencrypted);
+
+  if (gpu_factories_->IsDecoderConfigSupported(
+          ::media::VideoDecoderImplementation::kDefault, config) ==
+      ::media::GpuVideoAcceleratorFactories::Supported::kFalse) {
+    blink::PostCrossThreadTask(
+        *media_task_runner_.get(), FROM_HERE,
+        CrossThreadBindOnce(std::move(init_cb),
+                            ElectronVideoStatus::Unsupported));
+  }
+
+  blink::PostCrossThreadTask(
+      *media_task_runner_.get(), FROM_HERE,
+      CrossThreadBindOnce(
+          &DiscordVideoDecoderMediaThread::InitializeOnMediaThread,
+          CrossThreadUnretained(this), config, std::move(init_cb)));
 }
 
 void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(
@@ -260,7 +332,7 @@ void DiscordVideoDecoderMediaThread::OnOutput(
   ElectronPointer<IElectronVideoFrame> wrapped_frame =
       new DiscordVideoFrame(frame);
 
-  video_sink_(&*wrapped_frame);
+  video_sink_(&*wrapped_frame, user_data_);
 }
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
@@ -293,44 +365,29 @@ DiscordVideoDecoder::DiscordVideoDecoder() {
 
 DiscordVideoDecoder::~DiscordVideoDecoder() {
   if (media_thread_state_) {
-    gpu_factories_->GetTaskRunner()->DeleteSoon(FROM_HERE, media_thread_state_);
+    media_thread_state_->DeleteSoon();
   }
 }
 
 ElectronVideoStatus DiscordVideoDecoder::Initialize(
     IElectronVideoFormat* format,
-    ElectronVideoSink* videoSink) {
-  ElectronVideoCodec codec;
-  ElectronVideoCodecProfile profile;
+    ElectronVideoSink* video_sink,
+    void* user_data) {
+#ifdef PRINTF_DEBUGGING_IS_COOL_LOL
+  freopen("CONIN$", "r", stdin);
+  freopen("CONOUT$", "w", stdout);
+  freopen("CONOUT$", "w", stderr);
+#endif
 
-  if (gpu_factories_) {
-    // Can't reinitialize. Make a new one.
+  if (started_initialize_) {
     return ElectronVideoStatus::InvalidState;
   }
 
-  ELECTRON_VIDEO_RETURN_IF_ERR(format->GetCodec(&codec));
-  ELECTRON_VIDEO_RETURN_IF_ERR(format->GetProfile(&profile));
-
-  gpu_factories_ = blink::Platform::Current()->GetGpuFactories();
-
-  ::media::VideoDecoderConfig config(
-      static_cast<::media::VideoCodec>(codec),
-      static_cast<::media::VideoCodecProfile>(profile),
-      ::media::VideoDecoderConfig::AlphaMode::kIsOpaque,
-      ::media::VideoColorSpace(), ::media::kNoTransformation, kDefaultSize,
-      gfx::Rect(kDefaultSize), kDefaultSize, ::media::EmptyExtraData(),
-      ::media::EncryptionScheme::kUnencrypted);
-
-  if (gpu_factories_->IsDecoderConfigSupported(
-          ::media::VideoDecoderImplementation::kDefault, config) ==
-      ::media::GpuVideoAcceleratorFactories::Supported::kFalse) {
-    return ElectronVideoStatus::Unsupported;
-  }
-
+  started_initialize_ = true;
   media_thread_state_ =
-      new DiscordVideoDecoderMediaThread(gpu_factories_, videoSink);
+      new DiscordVideoDecoderMediaThread(format, video_sink, user_data);
 
-  ELECTRON_VIDEO_RETURN_IF_ERR(media_thread_state_->Initialize(config));
+  ELECTRON_VIDEO_RETURN_IF_ERR(media_thread_state_->Initialize());
   initialized_ = true;
   return ElectronVideoStatus::Success;
 }

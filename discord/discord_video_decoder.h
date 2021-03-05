@@ -26,14 +26,29 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
   DiscordVideoDecoder();
   ~DiscordVideoDecoder() override;
   ElectronVideoStatus Initialize(IElectronVideoFormat* format,
-                                 ElectronVideoSink* videoSink) override;
+                                 ElectronVideoSink* videoSink,
+                                 void* userData) override;
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
                                    uint32_t timestamp) override;
 
  private:
-  ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   DiscordVideoDecoderMediaThread* media_thread_state_{};
+  bool started_initialize_{false};
   bool initialized_{false};
+};
+
+class DiscordVideoFormat : public ElectronObject<IElectronVideoFormat> {
+ public:
+  DiscordVideoFormat();
+  ~DiscordVideoFormat() override;
+  ElectronVideoStatus SetCodec(ElectronVideoCodec codec) override;
+  ElectronVideoCodec GetCodec() override;
+  ElectronVideoStatus SetProfile(ElectronVideoCodecProfile profile) override;
+  ElectronVideoCodecProfile GetProfile() override;
+
+ private:
+  ElectronVideoCodec codec_{ElectronVideoCodec::kCodecH264};
+  ElectronVideoCodecProfile profile_{H264PROFILE_MAIN};
 };
 
 class IElectronVideoFrameMedia : public IElectronVideoFrame {

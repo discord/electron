@@ -141,17 +141,6 @@ class ElectronPointer final {
     return old;
   }
 
-  static ElectronPointer Retain(T* ptr) {
-    ElectronPointer result;
-
-    if (ptr) {
-      ptr->AddRef();
-      result.electronObject_ = ptr;
-    }
-
-    return result;
-  }
-
  private:
   ElectronPointer(ElectronPointer const&) = delete;
   ElectronPointer& operator=(ElectronPointer const&) = delete;
@@ -166,6 +155,15 @@ class ElectronPointer final {
 
   T* electronObject_;
 };
+
+template <typename T>
+ElectronPointer<T> RetainElectronVideoObject(T* ptr) {
+  if (ptr) {
+    ptr->AddRef();
+  }
+
+  return ptr;
+}
 
 class IElectronBuffer : public IElectronUnknown {
  public:
@@ -261,10 +259,9 @@ class IElectronVideoFormat : public IElectronUnknown {
  public:
   static constexpr char IID[] = "IElectronVideoFormat";
   virtual ElectronVideoStatus SetCodec(ElectronVideoCodec codec) = 0;
-  virtual ElectronVideoStatus GetCodec(ElectronVideoCodec* codec) = 0;
+  virtual ElectronVideoCodec GetCodec() = 0;
   virtual ElectronVideoStatus SetProfile(ElectronVideoCodecProfile profile) = 0;
-  virtual ElectronVideoStatus GetProfile(
-      ElectronVideoCodecProfile* profile) = 0;
+  virtual ElectronVideoCodecProfile GetProfile() = 0;
 };
 
 class IElectronVideoFrame : public IElectronUnknown {
@@ -284,13 +281,15 @@ class IElectronBufferPool : public IElectronUnknown {
   virtual ElectronVideoStatus CreateBuffer(IElectronBuffer** buffer) = 0;
 };
 
-typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame);
+typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame,
+                               void* userData);
 
 class IElectronVideoDecoder : public IElectronUnknown {
  public:
   static constexpr char IID[] = "IElectronVideoDecoder";
   virtual ElectronVideoStatus Initialize(IElectronVideoFormat* format,
-                                         ElectronVideoSink* videoSink) = 0;
+                                         ElectronVideoSink* videoSink,
+                                         void* userData) = 0;
   virtual ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
                                            uint32_t timestamp) = 0;
 };

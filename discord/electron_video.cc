@@ -1,4 +1,5 @@
 #define ELECTRON_VIDEO_IMPLEMENTATION
+#define ELECTRON_VIDEO_DECLARE_IIDS
 
 #include <vector>
 
@@ -9,41 +10,12 @@ namespace discord {
 namespace media {
 namespace electron {
 
-class DiscordBuffer : public ElectronObject<IElectronBuffer> {
- public:
-  DiscordBuffer(size_t length) { buffer_.resize(length); }
-
-  uint8_t* GetBytes() override { return buffer_.data(); }
-  size_t GetLength() override { return buffer_.size(); }
-
- private:
-  std::vector<uint8_t> buffer_{};
-};
-
-class DiscordBufferPool : public ElectronObject<IElectronBufferPool> {
- public:
-  DiscordBufferPool() {}
-  ElectronVideoStatus Initialize(size_t length, size_t count) override {
-    length_ = length;
-    return ElectronVideoStatus::Success;
-  }
-  ElectronVideoStatus CreateBuffer(IElectronBuffer** buffer) override {
-    *buffer = new DiscordBuffer(length_);
-    return ElectronVideoStatus::Success;
-  }
-
- private:
-  size_t length_{};
-};
-
 ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
                                               char const* iid,
                                               void** ppVideoObject) {
   ElectronPointer<IElectronUnknown> ptr;
 
-  if (!strcmp(clsid, "DiscordBufferPool")) {
-    ptr = new DiscordBufferPool();
-  } else if (!strcmp(clsid, "DiscordVideoDecoder")) {
+  if (!strcmp(clsid, "DiscordVideoDecoder")) {
     ptr = new DiscordVideoDecoder();
   } else if (!strcmp(clsid, "DiscordVideoFormat")) {
     ptr = new DiscordVideoFormat();

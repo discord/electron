@@ -273,14 +273,6 @@ class IElectronVideoFrame : public IElectronUnknown {
   virtual ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) = 0;
 };
 
-class IElectronBufferPool : public IElectronUnknown {
- public:
-  static constexpr char IID[] = "IElectronBufferPool";
-
-  virtual ElectronVideoStatus Initialize(size_t length, size_t count) = 0;
-  virtual ElectronVideoStatus CreateBuffer(IElectronBuffer** buffer) = 0;
-};
-
 typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame,
                                void* userData);
 
@@ -300,6 +292,17 @@ ElectronVideoCreateObject(char const* clsid,
                           char const* iid,
                           void** ppElectronObject);
 }
+
+// This should be defined in exactly one source file to ensure the proper
+// linkage for these constants exists (similar to COM INITGUID). This can go
+// away once everybody is using C++17.
+#ifdef ELECTRON_VIDEO_DECLARE_IIDS
+constexpr char IElectronUnknown::IID[];
+constexpr char IElectronBuffer::IID[];
+constexpr char IElectronVideoFormat::IID[];
+constexpr char IElectronVideoFrame::IID[];
+constexpr char IElectronVideoDecoder::IID[];
+#endif  // ELECTRON_VIDEO_DECLARE_IIDS
 
 }  // namespace electron
 }  // namespace media

@@ -32,6 +32,8 @@ namespace discord {
 namespace media {
 namespace electron {
 
+constexpr char IElectronVideoFrameMedia::IID[];
+
 namespace {
 using InitCB = CrossThreadOnceFunction<void(ElectronVideoStatus)>;
 

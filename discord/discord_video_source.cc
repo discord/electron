@@ -1,10 +1,10 @@
 #include "electron/discord/discord_video_source.h"
 
+#include "discord/discord_video_decoder.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "media/video/gpu_video_accelerator_factories.h"
-
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -13,6 +13,7 @@ namespace {
 enum DiscordFrameType {
   DISCORD_FRAME_NATIVE,
   DISCORD_FRAME_I420,
+  DISCORD_FRAME_ELECTRON,
 };
 }  // namespace
 
@@ -211,8 +212,19 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
             CrossThreadUnretained(userData)));
     return;
 #endif
+  } else if (frame.type == DISCORD_FRAME_ELECTRON) {
+    discord::media::electron::ElectronPointer<
+        discord::media::electron::IElectronVideoFrameMedia>
+        electron_frame_media;
+
+    if (ELECTRON_VIDEO_SUCCEEDED(frame.frame.electron->QueryInterface(
+            discord::media::electron::IElectronVideoFrameMedia::IID,
+            electron_frame_media.Receive<void>()))) {
+      video_frame = electron_frame_media->GetMediaFrame();
+    }
   }
-  if (!video_frame) {
+
+  if (!video_frame && userData) {
     // currently unsupported type or WrapExternalYuvData failed
     releaseCB(userData);
     return;
@@ -223,8 +235,11 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
       CrossThreadBindOnce(&VideoSourceDelegate::DoRenderFrameOnIOThread,
                           WrapRefCounted(this), video_frame,
                           base::TimeTicks()));
-  video_frame->AddDestructionObserver(ConvertToBaseOnceCallback(
-      CrossThreadBindOnce(releaseCB, CrossThreadUnretained(userData))));
+
+  if (userData) {
+    video_frame->AddDestructionObserver(ConvertToBaseOnceCallback(
+        CrossThreadBindOnce(releaseCB, CrossThreadUnretained(userData))));
+  }
 }
 
 // static

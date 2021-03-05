@@ -5,6 +5,7 @@
 #include <mutex>
 
 #include "base/macros.h"
+#include "discord/electron_video_shared.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_source.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/webrtc/api/media_stream_interface.h"
@@ -27,6 +28,7 @@ struct DiscordFrame {
 #if defined(OS_WIN)
     HANDLE texture_handle;
 #endif
+    discord::media::electron::IElectronVideoFrame* electron;
   } frame;
   int32_t width;
   int32_t height;

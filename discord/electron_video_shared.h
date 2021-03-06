@@ -50,8 +50,8 @@ class IElectronUnknown {
 
   virtual ElectronVideoStatus QueryInterface(char const* iid,
                                              void** ppUnknown) = 0;
-  virtual uint32_t AddRef() = 0;
-  virtual uint32_t Release() = 0;
+  virtual size_t AddRef() = 0;
+  virtual size_t Release() = 0;
 };
 
 template <typename Base, typename... ExtraInterfaces>
@@ -62,8 +62,8 @@ class ElectronObject : public Base {
     return RecursiveQueryInterface<IElectronUnknown, Base, ExtraInterfaces...>(
         iid, ppUnknown);
   }
-  virtual uint32_t AddRef() override { return ++refCount_; }
-  virtual uint32_t Release() override {
+  virtual size_t AddRef() override { return ++refCount_; }
+  virtual size_t Release() override {
     auto newCount = --refCount_;
 
     if (newCount == 0) {
@@ -98,7 +98,7 @@ class ElectronObject : public Base {
 
     return RecursiveQueryInterface<Tail...>(iid, ppUnknown);
   }
-  std::atomic<uint64_t> refCount_{1};
+  std::atomic<size_t> refCount_{1};
 };
 
 template <typename T>

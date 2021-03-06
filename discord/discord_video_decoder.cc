@@ -185,7 +185,8 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize() {
 
   // This is gross, but the non "ForTesting" version of this requires an
   // explicit friend class declaration, and I don't want to modify base just to
-  // add us to the whitelist.
+  // add us to the whitelist. It might be worth just moving the blocking wait
+  // out of this code and into the consumer in Discord.
   base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
   base::WaitableEvent waiter(base::WaitableEvent::ResetPolicy::MANUAL,
                              base::WaitableEvent::InitialState::NOT_SIGNALED);
@@ -211,8 +212,13 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize() {
 }
 
 void DiscordVideoDecoderMediaThread::InitializeOnMainThread(InitCB init_cb) {
-  // TODO(eiz): check if gpu_factories_ actually is non null
   gpu_factories_ = content::RenderThreadImpl::current()->GetGpuFactories();
+
+  if (!gpu_factories_) {
+    std::move(init_cb).Run(ElectronVideoStatus::Unsupported);
+    return;
+  }
+
   media_task_runner_ = gpu_factories_->GetTaskRunner();
 
   ::media::VideoDecoderConfig config(
@@ -230,6 +236,7 @@ void DiscordVideoDecoderMediaThread::InitializeOnMainThread(InitCB init_cb) {
         *media_task_runner_.get(), FROM_HERE,
         CrossThreadBindOnce(std::move(init_cb),
                             ElectronVideoStatus::Unsupported));
+    return;
   }
 
   blink::PostCrossThreadTask(

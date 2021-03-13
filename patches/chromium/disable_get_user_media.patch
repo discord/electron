@@ -6,7 +6,7 @@ Subject: Disable getUserMedia
 We don't use it and without proper user interaction / consent enforcement it is nothing but a liability.
 
 diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
-index 1fc3e9ae1c57..a3d2f9bb7c46 100644
+index 1fc3e9ae1c57f287fb7badb80b915ba8703c6da4..a3d2f9bb7c46a5debba73ca715f6dd8f9309f830 100644
 --- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
 +++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
 @@ -107,6 +107,13 @@ ScriptPromise MediaDevices::SendUserMediaRequest(
@@ -22,23 +22,23 @@ index 1fc3e9ae1c57..a3d2f9bb7c46 100644
 +
    auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
    auto* callbacks = MakeGarbageCollected<PromiseResolverCallbacks>(resolver);
-
+ 
 @@ -144,6 +151,7 @@ ScriptPromise MediaDevices::SendUserMediaRequest(
    auto promise = resolver->Promise();
    request->Start();
    return promise;
 +  */
  }
-
+ 
  ScriptPromise MediaDevices::getDisplayMedia(
 diff --git a/third_party/blink/renderer/modules/mediastream/navigator_media_stream.cc b/third_party/blink/renderer/modules/mediastream/navigator_media_stream.cc
-index f1658e54be69..5e90c0a3d59a 100644
+index f1658e54be690bc9ee6f9a8587fe8005ab576038..5e90c0a3d59a2f4355068ad29418afb4784298fb 100644
 --- a/third_party/blink/renderer/modules/mediastream/navigator_media_stream.cc
 +++ b/third_party/blink/renderer/modules/mediastream/navigator_media_stream.cc
 @@ -48,6 +48,12 @@ void NavigatorMediaStream::getUserMedia(
    DCHECK(success_callback);
    DCHECK(error_callback);
-
+ 
 +  exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
 +                                    "getUserMedia is not supported.");
 +
@@ -50,9 +50,9 @@ index f1658e54be69..5e90c0a3d59a 100644
    if (!user_media) {
 @@ -79,6 +85,7 @@ void NavigatorMediaStream::getUserMedia(
    }
-
+ 
    request->Start();
 +  */
  }
-
+ 
  }  // namespace blink

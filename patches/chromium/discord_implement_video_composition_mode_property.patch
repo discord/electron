@@ -1,0 +1,271 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Sat, 13 Mar 2021 13:01:55 -0800
+Subject: [discord] implement video composition mode property
+
+
+diff --git a/content/renderer/media/media_factory.cc b/content/renderer/media/media_factory.cc
+index 9c8d0b0adec6825782d1e2eaf6cc664e0fe9b046..9116ff3deacd8b8707ff54d80d42ecc270cfcaf8 100644
+--- a/content/renderer/media/media_factory.cc
++++ b/content/renderer/media/media_factory.cc
+@@ -50,6 +50,7 @@
+ #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/modules/mediastream/web_media_element_source_utils.h"
+ #include "third_party/blink/public/platform/platform.h"
++#include "third_party/blink/public/platform/web_media_player_client.h"
+ #include "third_party/blink/public/platform/web_surface_layer_bridge.h"
+ #include "third_party/blink/public/platform/web_video_frame_submitter.h"
+ #include "third_party/blink/public/web/blink.h"
+@@ -230,9 +231,8 @@ bool UseMediaPlayerRenderer(const GURL& url) {
+ std::unique_ptr<blink::WebVideoFrameSubmitter> MediaFactory::CreateSubmitter(
+     scoped_refptr<base::SingleThreadTaskRunner>*
+         video_frame_compositor_task_runner,
++    blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video,
+     const cc::LayerTreeSettings& settings) {
+-  blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video =
+-      GetVideoSurfaceLayerMode();
+   content::RenderThreadImpl* render_thread =
+       content::RenderThreadImpl::current();
+   *video_frame_compositor_task_runner = nullptr;
+@@ -397,7 +397,8 @@ blink::WebMediaPlayer* MediaFactory::CreateMediaPlayer(
+   scoped_refptr<base::SingleThreadTaskRunner>
+       video_frame_compositor_task_runner;
+   std::unique_ptr<blink::WebVideoFrameSubmitter> submitter =
+-      CreateSubmitter(&video_frame_compositor_task_runner, settings);
++      CreateSubmitter(&video_frame_compositor_task_runner,
++                      GetVideoSurfaceLayerMode(), settings);
+ 
+   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner =
+       render_thread->GetMediaThreadTaskRunner();
+@@ -603,10 +604,18 @@ blink::WebMediaPlayer* MediaFactory::CreateWebMediaPlayerForMediaStream(
+     const cc::LayerTreeSettings& settings) {
+   RenderThreadImpl* const render_thread = RenderThreadImpl::current();
+ 
++  blink::WebMediaPlayer::SurfaceLayerMode surface_layer_mode =
++      GetVideoSurfaceLayerMode();
++  blink::WebMediaPlayer::SurfaceLayerMode layer_mode_override;
++
++  if (client->DesiredSurfaceLayerMode(&layer_mode_override)) {
++    surface_layer_mode = layer_mode_override;
++  }
++
+   scoped_refptr<base::SingleThreadTaskRunner>
+       video_frame_compositor_task_runner;
+-  std::unique_ptr<blink::WebVideoFrameSubmitter> submitter =
+-      CreateSubmitter(&video_frame_compositor_task_runner, settings);
++  std::unique_ptr<blink::WebVideoFrameSubmitter> submitter = CreateSubmitter(
++      &video_frame_compositor_task_runner, surface_layer_mode, settings);
+ 
+   std::unique_ptr<BatchingMediaLog::EventHandler> event_handler;
+   if (base::FeatureList::IsEnabled(media::kMediaInspectorLogging)) {
+@@ -633,7 +642,7 @@ blink::WebMediaPlayer* MediaFactory::CreateWebMediaPlayerForMediaStream(
+       sink_id,
+       base::BindOnce(&blink::WebSurfaceLayerBridge::Create,
+                      parent_frame_sink_id),
+-      std::move(submitter), GetVideoSurfaceLayerMode());
++      std::move(submitter), surface_layer_mode);
+ }
+ 
+ media::RendererWebMediaPlayerDelegate*
+diff --git a/content/renderer/media/media_factory.h b/content/renderer/media/media_factory.h
+index 0c65658918fb874db40338e486f1d070e0bc408a..e185838846758dd0e6164a81095814ea4493741c 100644
+--- a/content/renderer/media/media_factory.h
++++ b/content/renderer/media/media_factory.h
+@@ -86,6 +86,7 @@ class MediaFactory {
+   std::unique_ptr<blink::WebVideoFrameSubmitter> CreateSubmitter(
+       scoped_refptr<base::SingleThreadTaskRunner>*
+           video_frame_compositor_task_runner,
++      blink::WebMediaPlayer::SurfaceLayerMode use_surface_layer_for_video,
+       const cc::LayerTreeSettings& settings);
+ 
+   // Creates a new WebMediaPlayer for the given |source| (either a stream or
+diff --git a/third_party/blink/public/mojom/use_counter/css_property_id.mojom b/third_party/blink/public/mojom/use_counter/css_property_id.mojom
+index dfc2bf25a96aa88541bddefbee1cf1cebda2fedb..8608f7d1d5a85f604e8238d0373b47ac5c3d03d2 100644
+--- a/third_party/blink/public/mojom/use_counter/css_property_id.mojom
++++ b/third_party/blink/public/mojom/use_counter/css_property_id.mojom
+@@ -36,6 +36,7 @@ enum CSSSampleId {
+     kInternalVisitedTextEmphasisColor = 0,
+     kInternalVisitedTextFillColor = 0,
+     kInternalVisitedTextStrokeColor = 0,
++    kDiscordVideoComposition = 0,
+ 
+     // This CSSSampleId represents page load for CSS histograms. It is recorded once
+     // per page visit for each CSS histogram being logged on the blink side and the
+diff --git a/third_party/blink/public/platform/web_media_player_client.h b/third_party/blink/public/platform/web_media_player_client.h
+index f47c293418a82ad91a14d9694130f9156a7c5e79..81679456c9187ee01d8cd775db941414f0fed8ad 100644
+--- a/third_party/blink/public/platform/web_media_player_client.h
++++ b/third_party/blink/public/platform/web_media_player_client.h
+@@ -199,6 +199,11 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
+   // learning experiment.
+   virtual Features GetFeatures() = 0;
+ 
++  // Desired surface layer mode. Returns false if no preference.
++  virtual bool DesiredSurfaceLayerMode(WebMediaPlayer::SurfaceLayerMode*) {
++    return false;
++  }
++
+  protected:
+   ~WebMediaPlayerClient() = default;
+ };
+diff --git a/third_party/blink/renderer/core/css/css_properties.json5 b/third_party/blink/renderer/core/css/css_properties.json5
+index 6ec7f584d08158e8486e7d6be5e91f49dcd22b4b..5ad013afbf1454007d4963e74c60a9883cf8d5cd 100644
+--- a/third_party/blink/renderer/core/css/css_properties.json5
++++ b/third_party/blink/renderer/core/css/css_properties.json5
+@@ -5732,6 +5732,16 @@
+       converter: "ConvertInternalEmptyLineHeight",
+     },
+ 
++    {
++      name: "-discord-video-composition",
++      property_methods: ["CSSValueFromComputedStyleInternal"],
++      field_group: "*",
++      field_template: "keyword",
++      keywords: ["surface-layer", "video-layer"],
++      typedom_types: ["Keyword"],
++      default_value: "surface-layer",
++    },
++
+     // Aliases; these map to the same CSSPropertyID
+     {
+       name: "-epub-caption-side",
+diff --git a/third_party/blink/renderer/core/css/css_value_keywords.json5 b/third_party/blink/renderer/core/css/css_value_keywords.json5
+index 3b7a8b92b34c3c29f86bd08558843a317630691a..e02a20bc650d04fc79250369135f1f5df3c494d1 100644
+--- a/third_party/blink/renderer/core/css/css_value_keywords.json5
++++ b/third_party/blink/renderer/core/css/css_value_keywords.json5
+@@ -1231,5 +1231,9 @@
+     // @supports selector(...)
+     // https://drafts.csswg.org/css-conditional-4/#typedef-supports-selector-fn
+     "selector",
++
++    // -discord-video-composition
++    "surface-layer",
++    "video-layer",
+   ],
+ }
+diff --git a/third_party/blink/renderer/core/css/parser/css_parser_fast_paths.cc b/third_party/blink/renderer/core/css/parser/css_parser_fast_paths.cc
+index faf3e61ee94bd147312e95d2d73f94fede43a0fd..c9ff618a1b1cc6e26836378709d5482c1e179e7f 100644
+--- a/third_party/blink/renderer/core/css/parser/css_parser_fast_paths.cc
++++ b/third_party/blink/renderer/core/css/parser/css_parser_fast_paths.cc
+@@ -969,6 +969,9 @@ bool CSSParserFastPaths::IsValidKeywordPropertyAndValue(
+              value_id == CSSValueID::kContain || value_id == CSSValueID::kNone;
+     case CSSPropertyID::kOriginTrialTestProperty:
+       return value_id == CSSValueID::kNormal || value_id == CSSValueID::kNone;
++    case CSSPropertyID::kDiscordVideoComposition:
++      return value_id == CSSValueID::kSurfaceLayer ||
++             value_id == CSSValueID::kVideoLayer;
+     default:
+       NOTREACHED();
+       return false;
+@@ -1085,6 +1088,7 @@ bool CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID property_id) {
+     case CSSPropertyID::kWritingMode:
+     case CSSPropertyID::kScrollSnapStop:
+     case CSSPropertyID::kOriginTrialTestProperty:
++    case CSSPropertyID::kDiscordVideoComposition:
+       return true;
+     default:
+       return false;
+diff --git a/third_party/blink/renderer/core/css/properties/longhands/longhands_custom.cc b/third_party/blink/renderer/core/css/properties/longhands/longhands_custom.cc
+index 2273c259d3a267dab092d39fce8580a4c84af25f..28ea5716b07d35282ad02a7676dbdc8050595fd3 100644
+--- a/third_party/blink/renderer/core/css/properties/longhands/longhands_custom.cc
++++ b/third_party/blink/renderer/core/css/properties/longhands/longhands_custom.cc
+@@ -8137,5 +8137,13 @@ const CSSValue* InternalEmptyLineHeight::ParseSingleValue(
+                                                    CSSValueID::kNone>(range);
+ }
+ 
++const CSSValue* DiscordVideoComposition::CSSValueFromComputedStyleInternal(
++    const ComputedStyle& style,
++    const SVGComputedStyle&,
++    const LayoutObject*,
++    bool allow_visited_style) const {
++  return CSSIdentifierValue::Create(style.DiscordVideoComposition());
++}
++
+ }  // namespace css_longhand
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/core/html/media/html_media_element.cc b/third_party/blink/renderer/core/html/media/html_media_element.cc
+index f14430417bcadfb942b7d855db6040c4c08b5132..8a7263730778dccf1db547a3354ab106591fb1e9 100644
+--- a/third_party/blink/renderer/core/html/media/html_media_element.cc
++++ b/third_party/blink/renderer/core/html/media/html_media_element.cc
+@@ -58,6 +58,7 @@
+ #include "third_party/blink/renderer/core/dom/element_traversal.h"
+ #include "third_party/blink/renderer/core/dom/events/event.h"
+ #include "third_party/blink/renderer/core/dom/events/event_queue.h"
++#include "third_party/blink/renderer/core/dom/node_computed_style.h"
+ #include "third_party/blink/renderer/core/dom/shadow_root.h"
+ #include "third_party/blink/renderer/core/events/keyboard_event.h"
+ #include "third_party/blink/renderer/core/fileapi/url_file_api.h"
+@@ -734,6 +735,44 @@ void HTMLMediaElement::AttachLayoutTree(AttachContext& context) {
+ void HTMLMediaElement::DidRecalcStyle(const StyleRecalcChange change) {
+   if (!change.ReattachLayoutTree() && GetLayoutObject())
+     GetLayoutObject()->UpdateFromElement();
++  UpdateDiscordVideoComposition();
++}
++
++void HTMLMediaElement::UpdateDiscordVideoComposition() {
++  base::Optional<EDiscordVideoComposition> video_composition;
++  auto* style = GetComputedStyle();
++
++  if (style) {
++    video_composition = style->DiscordVideoComposition();
++  }
++
++  if (video_composition != last_video_composition_) {
++    last_video_composition_ = video_composition;
++
++    // The way MediaFactory and WebMediaPlayerMS and its related classes
++    // interact to handle layer setup and threading is amazingly hairy and
++    // profoundly misdesigned, so just reload the player completely if we switch
++    // compositing modes. Fixing this would require changing all the plumbing so
++    // WebMediaPlayerMS can switch modes freely even if it was initialized in
++    // surface layer mode.
++    ignore_preload_none_ = false;
++    InvokeLoadAlgorithm();
++  }
++}
++
++bool HTMLMediaElement::DesiredSurfaceLayerMode(
++    WebMediaPlayer::SurfaceLayerMode* desired_mode) {
++  DCHECK(IsMainThread());
++
++  if (!last_video_composition_.has_value()) {
++    return false;
++  }
++
++  *desired_mode =
++      *last_video_composition_ == EDiscordVideoComposition::kSurfaceLayer
++          ? WebMediaPlayer::SurfaceLayerMode::kAlways
++          : WebMediaPlayer::SurfaceLayerMode::kNever;
++  return true;
+ }
+ 
+ void HTMLMediaElement::ScheduleTextTrackResourceLoad() {
+diff --git a/third_party/blink/renderer/core/html/media/html_media_element.h b/third_party/blink/renderer/core/html/media/html_media_element.h
+index 85851eb1cbc0a76e4280773f034070e1c1dd166f..ee6edd57d2715d1b86b6a5415d6466a9c48a0dce 100644
+--- a/third_party/blink/renderer/core/html/media/html_media_element.h
++++ b/third_party/blink/renderer/core/html/media/html_media_element.h
+@@ -390,6 +390,8 @@ class CORE_EXPORT HTMLMediaElement
+ 
+   bool IsInteractiveContent() const final;
+ 
++  void UpdateDiscordVideoComposition();
++
+   // ExecutionContextLifecycleStateObserver functions.
+   void ContextLifecycleStateChanged(mojom::FrameLifecycleState) override;
+   void ContextDestroyed() override;
+@@ -447,6 +449,8 @@ class CORE_EXPORT HTMLMediaElement
+   void RequestMuted(bool muted) final;
+   void RequestEnterPictureInPicture() override {}
+   void RequestExitPictureInPicture() override {}
++  bool DesiredSurfaceLayerMode(
++      WebMediaPlayer::SurfaceLayerMode* desired_mode) override;
+ 
+   void LoadTimerFired(TimerBase*);
+   void ProgressEventTimerFired(TimerBase*);
+@@ -625,6 +629,7 @@ class CORE_EXPORT HTMLMediaElement
+   cc::Layer* cc_layer_;
+ 
+   DisplayMode display_mode_;
++  base::Optional<EDiscordVideoComposition> last_video_composition_;
+ 
+   Member<MediaSource> media_source_;
+ 

@@ -1071,6 +1071,13 @@ if (is_mac) {
     ]
   }
 
+  copy("discord_includes") {
+    sources = [
+      "discord/electron_video_shared.h"
+    ]
+    outputs = [ "$root_out_dir/include/{{source_file_part}}"]
+  }
+
   executable("electron_app") {
     output_name = electron_project_name
     sources = filenames.app_sources
@@ -1086,7 +1093,8 @@ if (is_mac) {
       "//ui/strings",
     ]
 
-    data = []
+    data_deps = [ ":discord_includes" ]
+    data = [ ]
 
     data += [ "$root_out_dir/resources.pak" ]
     data += [ "$root_out_dir/chrome_100_percent.pak" ]

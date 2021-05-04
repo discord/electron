@@ -157,3 +157,4 @@ ignore_mouse_buttons_other_than_left_right_middle.patch
 use_sw_show_for_initial_state_not_shownormal.patch
 disable_get_user_media.patch
 discord_implement_video_composition_mode_property.patch
+skid-proof_video_decoding_memory_use.patch

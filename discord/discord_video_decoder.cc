@@ -144,7 +144,6 @@ class DiscordVideoDecoderMediaThread {
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
   ElectronPointer<IElectronVideoFormat> format_;
-  ElectronVideoSink* video_sink_;
   void* user_data_;
   ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   std::unique_ptr<::media::MediaLog> media_log_;
@@ -156,6 +155,7 @@ class DiscordVideoDecoderMediaThread {
   base::Lock lock_;
   bool has_error_{false};
   WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_;
+  ElectronVideoSink* video_sink_;
   base::WeakPtr<DiscordVideoDecoderMediaThread> weak_this_;
   base::WeakPtrFactory<DiscordVideoDecoderMediaThread> weak_this_factory_{this};
 
@@ -167,12 +167,17 @@ DiscordVideoDecoderMediaThread::DiscordVideoDecoderMediaThread(
     ElectronVideoSink* video_sink,
     void* user_data)
     : format_(RetainElectronVideoObject(format)),
-      video_sink_(video_sink),
-      user_data_(user_data) {
+      user_data_(user_data),
+      video_sink_(video_sink) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
 
 void DiscordVideoDecoderMediaThread::DeleteSoon() {
+  {
+    base::AutoLock auto_lock(lock_);
+    pending_buffers_.clear();
+    video_sink_ = nullptr;
+  }
   if (gpu_factories_) {
     gpu_factories_->GetTaskRunner()->DeleteSoon(FROM_HERE, this);
   } else {
@@ -341,7 +346,10 @@ void DiscordVideoDecoderMediaThread::OnOutput(
   ElectronPointer<IElectronVideoFrame> wrapped_frame =
       new DiscordVideoFrame(frame);
 
-  video_sink_(&*wrapped_frame, user_data_);
+  base::AutoLock auto_lock(lock_);
+  if (video_sink_) {
+    video_sink_(&*wrapped_frame, user_data_);
+  }
 }
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(

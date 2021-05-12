@@ -293,6 +293,32 @@ ElectronVideoCreateObject(char const* clsid,
                           void** ppElectronObject);
 }
 
+struct DiscordYUVFrame {
+  const uint8_t* y;
+  const uint8_t* u;
+  const uint8_t* v;
+  int32_t y_stride;
+  int32_t u_stride;
+  int32_t v_stride;
+};
+
+enum Rotation : int32_t { kRotation0, kRotation90, kRotation180, kRotation270 };
+
+struct DiscordFrame {
+  int64_t timestamp_us;
+  union {
+    DiscordYUVFrame yuv;
+#if defined(_WIN32)
+    void* texture_handle;
+#endif
+    IElectronVideoFrame* electron;
+  } frame;
+  int32_t width;
+  int32_t height;
+  int32_t type;
+  Rotation rotation;
+};
+
 // This should be defined in exactly one source file to ensure the proper
 // linkage for these constants exists (similar to COM INITGUID). This can go
 // away once everybody is using C++17.

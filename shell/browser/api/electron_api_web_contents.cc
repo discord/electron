@@ -1542,6 +1542,10 @@ bool WebContents::EmitNavigationEvent(
               frame_routing_id);
 }
 
+void WebContents::UpdateCursor(const content::WebCursor& cursor) {
+  OnCursorChanged(cursor);
+}
+
 void WebContents::Message(bool internal,
                           const std::string& channel,
                           blink::CloneableMessage arguments,

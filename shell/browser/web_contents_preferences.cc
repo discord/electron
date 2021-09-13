@@ -185,6 +185,11 @@ WebContentsPreferences::WebContentsPreferences(
     }
   }
 
+  // apply our own no-compromise "preferences"
+  preference_.SetKey(options::kEnableRemoteModule, base::Value(false));
+  preference_.SetKey(options::kNodeIntegration, base::Value(false));
+  preference_.SetKey(options::kContextIsolation, base::Value(true));
+
   SetDefaults();
 }
 

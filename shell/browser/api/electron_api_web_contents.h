@@ -43,6 +43,7 @@
 #include "shell/common/gin_helper/constructible.h"
 #include "shell/common/gin_helper/error_thrower.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/range/range.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "chrome/browser/printing/print_view_manager_basic.h"
@@ -284,6 +285,15 @@ class WebContents : public gin::Wrappable<WebContents>,
 #endif
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
+
+  // Methods for offscreen IME
+  void SendImeEvent(const gin_helper::Dictionary& event);
+  void OnImeCompositionRangeChanged(
+      const gfx::Range& range,
+      const std::vector<gfx::Rect>& character_bounds);
+  void OnSelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                const gfx::Rect& focus_rect,
+                                bool is_anchor_first);
 
   // Methods for zoom handling.
   void SetZoomLevel(double level);

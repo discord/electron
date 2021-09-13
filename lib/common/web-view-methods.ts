@@ -47,7 +47,8 @@ export const syncMethods = new Set([
   'getZoomFactor',
   'getZoomLevel',
   'setZoomFactor',
-  'setZoomLevel'
+  'setZoomLevel',
+  'sendImeEvent'
 ]);
 
 export const properties = new Set([

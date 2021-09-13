@@ -695,6 +695,13 @@ electron_paks("packed_resources") {
   }
 }
 
+copy("discord_includes") {
+  sources = [
+    "discord/electron_video_shared.h"
+  ]
+  outputs = [ "$root_out_dir/include/{{source_file_part}}"]
+}
+
 if (is_mac) {
   electron_framework_name = "$electron_product_name Framework"
   electron_helper_name = "$electron_product_name Helper"
@@ -1124,7 +1131,8 @@ if (is_mac) {
       "//ui/strings",
     ]
 
-    data = []
+    data_deps = [ ]
+    data = [ ]
 
     data += [ "$root_out_dir/resources.pak" ]
     data += [ "$root_out_dir/chrome_100_percent.pak" ]
@@ -1343,6 +1351,7 @@ dist_zip("electron_dist_zip") {
     ":electron_app",
     ":electron_version",
     ":licenses",
+    ":discord_includes",
   ]
   if (is_linux) {
     data_deps += [ "//sandbox/linux:chrome_sandbox" ]

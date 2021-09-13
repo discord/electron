@@ -6,6 +6,7 @@ const enableRemoteModule = getWebPreference(window, 'enableRemoteModule');
 export const rendererModuleList: ElectronInternal.ModuleEntry[] = [
   { name: 'contextBridge', loader: () => require('./context-bridge') },
   { name: 'crashReporter', loader: () => require('./crash-reporter') },
+  { name: 'discord', loader: () => process._linkedBinding('electron_renderer_discord') },
   { name: 'ipcRenderer', loader: () => require('./ipc-renderer') },
   { name: 'nativeImage', loader: () => require('./native-image') },
   { name: 'webFrame', loader: () => require('./web-frame') }

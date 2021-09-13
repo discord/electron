@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andy Dill <andy@discordapp.com>
+Date: Fri, 21 May 2021 13:25:21 -0700
+Subject: specify explicit typeRoots for typescript actions
+
+Without this crude hack `tsc` endlessly traverses upwards, inevitably finding
+the root `node_modules/@types` from Discord, which is always undesirable. We
+can and should re-evaluate this when/if it begins to cause a problem with
+Chromium compilation (i.e. if they have explicit types they want to use.)
+
+diff --git a/tools/typescript/ts_definitions.py b/tools/typescript/ts_definitions.py
+index 58e487eac65bb..994562e5a6992 100644
+--- a/tools/typescript/ts_definitions.py
++++ b/tools/typescript/ts_definitions.py
+@@ -32,6 +32,7 @@ def main(argv):
+       '--emitDeclarationOnly',
+       '--removeComments',
+       '--noResolve',
++      '--typeRoots', '"./node_modules/@types"',
+       '--rootDir',
+       args.root_dir,
+       '--outDir',
+diff --git a/tools/typescript/ts_library.py b/tools/typescript/ts_library.py
+index 3c632f9681d7e..80a60724be1a3 100644
+--- a/tools/typescript/ts_library.py
++++ b/tools/typescript/ts_library.py
+@@ -48,6 +48,7 @@ def main(argv):
+     tsconfig['files'].extend(args.definitions)
+
+   tsconfig['compilerOptions']['rootDir'] = root_dir
++  tsconfig['compilerOptions']['typeRoots'] = ["./node_modules/@types"]
+
+   # Handle custom path mappings, for example chrome://resources/ URLs.
+   if args.path_mappings is not None:

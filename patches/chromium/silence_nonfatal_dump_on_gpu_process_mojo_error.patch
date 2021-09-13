@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andy Dill <andy@discordapp.com>
+Date: Wed, 23 Jun 2021 12:53:41 -0700
+Subject: silence nonfatal dump on gpu process mojo error
+
+upstream changed mojo error reporting from being tacked-on to any crashes
+generated within 5 seconds to a nonfatal dump. this nonfatal dump is happening
+*a lot* and overwhelming sentry, so, for now, we will silence it.
+
+upstream issue for context:
+https://chromium-review.googlesource.com/c/chromium/src/+/2405413
+
+ideally we can remove this patch once mojo errors are not so prevalent or if
+upstream walks back this change.
+
+diff --git a/content/gpu/gpu_child_thread.cc b/content/gpu/gpu_child_thread.cc
+index c342022d4fdb4..0a616a4fb681d 100644
+--- a/content/gpu/gpu_child_thread.cc
++++ b/content/gpu/gpu_child_thread.cc
+@@ -56,8 +56,8 @@ namespace {
+ // Called when the GPU process receives a bad IPC message.
+ void HandleBadMessage(const std::string& error) {
+   LOG(ERROR) << "Mojo error in GPU process: " << error;
+-  mojo::debug::ScopedMessageErrorCrashKey crash_key_value(error);
+-  base::debug::DumpWithoutCrashing();
++  // mojo::debug::ScopedMessageErrorCrashKey crash_key_value(error);
++  // base::debug::DumpWithoutCrashing();
+ }
+ 
+ ChildThreadImpl::Options GetOptions() {

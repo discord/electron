@@ -139,3 +139,4 @@ disable_get_user_media.patch
 discord_implement_video_composition_mode_property.patch
 skid-proof_video_decoding_memory_use.patch
 specify_explicit_typeroots_for_typescript_actions.patch
+silence_nonfatal_dump_on_gpu_process_mojo_error.patch

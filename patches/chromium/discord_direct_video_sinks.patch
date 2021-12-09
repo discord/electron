@@ -1,0 +1,415 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Wed, 8 Dec 2021 19:59:08 -0800
+Subject: [discord] direct video sinks
+
+allows forwarding MediaStreams (specific use case: ones created from
+captureStream() on video and canvas elements) to discord native modules.
+
+diff --git a/third_party/blink/public/web/web_v8_features.h b/third_party/blink/public/web/web_v8_features.h
+index 8aa9f6ebf684e01ac23af98b3c40fdfa407084fb..fff0bcf6682c1f67660a2c0b992115d13f8116c4 100644
+--- a/third_party/blink/public/web/web_v8_features.h
++++ b/third_party/blink/public/web/web_v8_features.h
+@@ -22,6 +22,7 @@ namespace blink {
+ class WebV8Features {
+  public:
+   BLINK_EXPORT static void EnableMojoJS(v8::Local<v8::Context>, bool);
++  BLINK_EXPORT static void EnableDiscordVideo(v8::Local<v8::Context>, bool);
+ 
+   // Enables SharedArrayBuffer for this process.
+   BLINK_EXPORT static void EnableSharedArrayBuffer();
+diff --git a/third_party/blink/renderer/bindings/generated_in_modules.gni b/third_party/blink/renderer/bindings/generated_in_modules.gni
+index 66d798528137f50164a655449e9330a0cef7183c..452f35f047296cae010c3c5f6225b1e5a88bc7e0 100644
+--- a/third_party/blink/renderer/bindings/generated_in_modules.gni
++++ b/third_party/blink/renderer/bindings/generated_in_modules.gni
+@@ -1510,6 +1510,8 @@ generated_interface_sources_in_modules = [
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_directory_reader.h",
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_directory_reader_sync.cc",
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_directory_reader_sync.h",
++  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_discord_video.cc",
++  "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_discord_video.h",
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_document.cc",
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_document.h",
+   "$root_gen_dir/third_party/blink/renderer/bindings/modules/v8/v8_dom_error.cc",
+diff --git a/third_party/blink/renderer/bindings/idl_in_modules.gni b/third_party/blink/renderer/bindings/idl_in_modules.gni
+index 5a4684cc6bf438ab5b975da71c60df99cfb7e30c..a4fe16eb6902dc0689a7a8db345e8f14f87a8bab 100644
+--- a/third_party/blink/renderer/bindings/idl_in_modules.gni
++++ b/third_party/blink/renderer/bindings/idl_in_modules.gni
+@@ -194,6 +194,7 @@ static_idl_files_in_modules = get_path_info(
+           "//third_party/blink/renderer/modules/device_orientation/device_orientation_event_init.idl",
+           "//third_party/blink/renderer/modules/device_orientation/window_device_motion.idl",
+           "//third_party/blink/renderer/modules/device_orientation/window_device_orientation.idl",
++          "//third_party/blink/renderer/modules/discord_video/discord_video.idl",
+           "//third_party/blink/renderer/modules/donottrack/navigator_do_not_track.idl",
+           "//third_party/blink/renderer/modules/encoding/text_decode_options.idl",
+           "//third_party/blink/renderer/modules/encoding/text_decoder.idl",
+diff --git a/third_party/blink/renderer/core/context_features/context_feature_settings.h b/third_party/blink/renderer/core/context_features/context_feature_settings.h
+index 9c9a289262c01daa45e24d4cb553b7d90797f7b8..e94f6e5bda0d3584e84f09377068228cddbf48bd 100644
+--- a/third_party/blink/renderer/core/context_features/context_feature_settings.h
++++ b/third_party/blink/renderer/core/context_features/context_feature_settings.h
+@@ -34,10 +34,15 @@ class CORE_EXPORT ContextFeatureSettings final
+   void enableMojoJS(bool enable) { enable_mojo_js_ = enable; }
+   bool isMojoJSEnabled() const { return enable_mojo_js_; }
+ 
++  // ContextEnabled=DiscordVideo feature
++  void enableDiscordVideo(bool enable) { enable_discord_video_ = enable; }
++  bool isDiscordVideoEnabled() const { return enable_discord_video_; }
++
+   void Trace(Visitor*) const override;
+ 
+  private:
+   bool enable_mojo_js_ = false;
++  bool enable_discord_video_ = false;
+ };
+ 
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/core/exported/web_v8_features.cc b/third_party/blink/renderer/core/exported/web_v8_features.cc
+index 90805b2c6e5f61d5cc0af860570fd5c4ca9545a6..bf20226bb8f7cf667d6075665e4dbc05155a1580 100644
+--- a/third_party/blink/renderer/core/exported/web_v8_features.cc
++++ b/third_party/blink/renderer/core/exported/web_v8_features.cc
+@@ -21,6 +21,15 @@ void WebV8Features::EnableMojoJS(v8::Local<v8::Context> context, bool enable) {
+       ->enableMojoJS(enable);
+ }
+ 
++// static
++void WebV8Features::EnableDiscordVideo(v8::Local<v8::Context> context,
++                                       bool enable) {
++  ContextFeatureSettings::From(
++      ExecutionContext::From(context),
++      ContextFeatureSettings::CreationMode::kCreateIfNotExists)
++      ->enableDiscordVideo(enable);
++}
++
+ // static
+ void WebV8Features::EnableSharedArrayBuffer() {
+   static bool shared_array_buffer_enabled = false;
+diff --git a/third_party/blink/renderer/modules/BUILD.gn b/third_party/blink/renderer/modules/BUILD.gn
+index e3ba31ed2d9869397ad48738a845890408c7a466..cf90f33ea383276eccf614112afa0aa50ca851be 100644
+--- a/third_party/blink/renderer/modules/BUILD.gn
++++ b/third_party/blink/renderer/modules/BUILD.gn
+@@ -103,6 +103,7 @@ component("modules") {
+     "//third_party/blink/renderer/modules/delegated_ink",
+     "//third_party/blink/renderer/modules/device_orientation",
+     "//third_party/blink/renderer/modules/document_metadata",
++    "//third_party/blink/renderer/modules/discord_video",
+     "//third_party/blink/renderer/modules/donottrack",
+     "//third_party/blink/renderer/modules/encoding",
+     "//third_party/blink/renderer/modules/encryptedmedia",
+diff --git a/third_party/blink/renderer/modules/discord_video/BUILD.gn b/third_party/blink/renderer/modules/discord_video/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..ecb1be2931ca287236a6d677e9f3cd8e30a96a2d
+--- /dev/null
++++ b/third_party/blink/renderer/modules/discord_video/BUILD.gn
+@@ -0,0 +1,12 @@
++import("//third_party/blink/renderer/modules/modules.gni")
++
++blink_modules_sources("discord_video") {
++    sources = [
++        "discord_video.cc",
++        "discord_video.h",
++    ]
++    deps = [
++        "//electron/discord/public",
++        "//third_party/blink/renderer/modules/mediastream",
++    ]
++}
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/modules/discord_video/discord_video.cc b/third_party/blink/renderer/modules/discord_video/discord_video.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..1616584c871d21e4acb36aacb3724f0c117e67e0
+--- /dev/null
++++ b/third_party/blink/renderer/modules/discord_video/discord_video.cc
+@@ -0,0 +1,181 @@
++#include "third_party/blink/renderer/modules/discord_video/discord_video.h"
++
++#include "base/no_destructor.h"
++#include "base/synchronization/lock.h"
++#include "electron/discord/public/discord_video_frame.h"
++#include "third_party/blink/renderer/modules/mediastream/media_stream_track.h"
++#include "third_party/blink/renderer/modules/mediastream/media_stream_video_track.h"
++#include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
++#include "third_party/blink/renderer/platform/wtf/functional.h"
++#include "third_party/blink/renderer/platform/wtf/hash_map.h"
++#include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
++#include "third_party/blink/renderer/platform/wtf/uuid.h"
++
++using discord::media::electron::DiscordVideoFrame;
++using discord::media::electron::ElectronPointer;
++using discord::media::electron::IElectronVideoFrame;
++using discord::media::electron::IElectronVideoSinkAttachment;
++using discord::media::electron::RetainElectronVideoObject;
++
++namespace blink {
++
++const char DiscordVideo::kSupplementName[] = "DiscordVideo";
++
++namespace {
++struct DiscordVideoGlobalState {
++  base::Lock sink_lock_;
++  WTF::HashMap<String, std::unique_ptr<DiscordVideoSink>> sinks_;
++};
++
++DiscordVideoGlobalState& DiscordVideoGlobal() {
++  static base::NoDestructor<DiscordVideoGlobalState> instance;
++  return *instance;
++}
++}  // namespace
++
++// A refcounted holder of the actual sink data needed to deliver frames. The
++// video sink itself must be managed from the render main thread which means
++// that destruction could race with frame delivery on the IO thread if frame
++// callbacks were delivered directly to it, hence this.
++struct DiscordVideoSink::FrameReceiver
++    : public WTF::ThreadSafeRefCounted<FrameReceiver> {
++  FrameReceiver();
++  virtual ~FrameReceiver();
++  void OnVideoFrameOnIO(
++      scoped_refptr<media::VideoFrame> frame,
++      std::vector<scoped_refptr<media::VideoFrame>> scaled_frames,
++      base::TimeTicks estimated_capture_time);
++  base::Lock attachment_lock_;
++  discord::media::electron::ElectronPointer<
++      discord::media::electron::IElectronVideoSinkAttachment>
++      attachment_;
++};
++
++DiscordVideoSink::FrameReceiver::FrameReceiver() {}
++DiscordVideoSink::FrameReceiver::~FrameReceiver() {}
++
++void DiscordVideoSink::FrameReceiver::OnVideoFrameOnIO(
++    scoped_refptr<media::VideoFrame> frame,
++    std::vector<scoped_refptr<media::VideoFrame>> scaled_frames,
++    base::TimeTicks estimated_capture_time) {
++  base::ReleasableAutoLock guard{&attachment_lock_};
++  // TODO(eiz): boy I wish I'd made this a real shared ComPtr instead of copying
++  // our ScopedPointer...
++  auto attachment = RetainElectronVideoObject(&*attachment_);
++  guard.Release();
++
++  if (attachment) {
++    ElectronPointer<IElectronVideoFrame> electron_frame{
++        new DiscordVideoFrame(frame)};
++    attachment->OnFrame(&*electron_frame,
++                        estimated_capture_time.since_origin().InMicroseconds());
++  }
++}
++
++DiscordVideoSink::DiscordVideoSink()
++    : receiver_(base::MakeRefCounted<FrameReceiver>()) {}
++DiscordVideoSink::~DiscordVideoSink() {}
++
++void DiscordVideoSink::ConnectToTrack(WebMediaStreamTrack const& track) {
++  MediaStreamVideoSink::ConnectToTrack(
++      track,
++      ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
++          &FrameReceiver::OnVideoFrameOnIO, receiver_)),
++      MediaStreamVideoSink::IsSecure::kNo,
++      MediaStreamVideoSink::UsesAlpha::kNo);
++}
++
++// static
++bool DiscordVideoSink::SetAttachment(String const& sink_id,
++                                     IElectronVideoSinkAttachment* attachment) {
++  auto& global = DiscordVideoGlobal();
++  base::AutoLock guard_sinks{global.sink_lock_};
++  auto it = global.sinks_.find(sink_id);
++
++  if (it == global.sinks_.end()) {
++    return false;
++  }
++
++  base::AutoLock guard{it->value->receiver_->attachment_lock_};
++  it->value->receiver_->attachment_ = RetainElectronVideoObject(attachment);
++  return true;
++}
++
++DiscordVideo::DiscordVideo(ExecutionContext* context)
++    : Supplement(*context), ExecutionContextLifecycleStateObserver(context) {}
++
++// static
++DiscordVideo& DiscordVideo::From(ScriptState* script_state) {
++  auto* context = ExecutionContext::From(script_state);
++  auto* supplement = Supplement<ExecutionContext>::From<DiscordVideo>(context);
++
++  if (!supplement) {
++    supplement = MakeGarbageCollected<DiscordVideo>(context);
++    supplement->UpdateStateIfNeeded();
++    ProvideTo(*context, supplement);
++  }
++  return *supplement;
++}
++
++// static
++String DiscordVideo::createVideoSink(ScriptState* script_state,
++                                     MediaStreamTrack* track) {
++  auto& discord_video = DiscordVideo::From(script_state);
++  return discord_video.CreateSink(WebMediaStreamTrack(track->Component()));
++}
++
++// static
++void DiscordVideo::destroyVideoSink(ScriptState* script_state, String sink_id) {
++  auto& discord_video = DiscordVideo::From(script_state);
++  discord_video.DestroySink(sink_id);
++}
++
++String DiscordVideo::CreateSink(WebMediaStreamTrack const& track) {
++  auto sink = std::make_unique<DiscordVideoSink>();
++  auto sink_id = WTF::CreateCanonicalUUIDString();
++  auto& global = DiscordVideoGlobal();
++
++  sink->ConnectToTrack(track);
++  base::AutoLock guard(global.sink_lock_);
++  global.sinks_.insert(sink_id, std::move(sink));
++  owned_sinks_.insert(sink_id);
++  return sink_id;
++}
++
++void DiscordVideo::DestroySink(String const& sink_id) {
++  auto& global = DiscordVideoGlobal();
++  base::AutoLock guard(global.sink_lock_);
++  auto it = global.sinks_.find(sink_id);
++
++  if (it == global.sinks_.end()) {
++    return;
++  }
++
++  global.sinks_.erase(it);
++  owned_sinks_.erase(sink_id);
++}
++
++void DiscordVideo::ContextDestroyed() {
++  auto& global = DiscordVideoGlobal();
++  base::AutoLock guard(global.sink_lock_);
++
++  for (auto& it : owned_sinks_) {
++    auto git = global.sinks_.find(it);
++
++    CHECK(git != global.sinks_.end());
++    global.sinks_.erase(it);
++  }
++}
++
++void DiscordVideo::ContextLifecycleStateChanged(
++    mojom::blink::FrameLifecycleState lifecycle_state) {
++  //
++}
++
++void DiscordVideo::Trace(Visitor* visitor) const {
++  Supplement<ExecutionContext>::Trace(visitor);
++  ExecutionContextLifecycleStateObserver::Trace(visitor);
++  ScriptWrappable::Trace(visitor);
++}
++
++}  // namespace blink
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/modules/discord_video/discord_video.h b/third_party/blink/renderer/modules/discord_video/discord_video.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ba618a8f8871c7f346aecf6c9f57d94c8e3b029
+--- /dev/null
++++ b/third_party/blink/renderer/modules/discord_video/discord_video.h
+@@ -0,0 +1,69 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_VIDEO_DISCORD_VIDEO_H
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_VIDEO_DISCORD_VIDEO_H
++
++#include "base/memory/scoped_refptr.h"
++#include "base/memory/weak_ptr.h"
++#include "electron/discord/public/electron_video_shared.h"
++#include "third_party/blink/public/web/modules/mediastream/media_stream_video_sink.h"
++#include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_state_observer.h"
++#include "third_party/blink/renderer/modules/modules_export.h"
++#include "third_party/blink/renderer/platform/heap/heap.h"
++#include "third_party/blink/renderer/platform/supplementable.h"
++#include "third_party/blink/renderer/platform/wtf/hash_set.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++
++namespace blink {
++
++class MediaStreamTrack;
++class WebMediaStreamTrack;
++
++class DiscordVideoSink : public MediaStreamVideoSink {
++ public:
++  DiscordVideoSink();
++  ~DiscordVideoSink() override;
++  void ConnectToTrack(WebMediaStreamTrack const& track);
++
++  static bool SetAttachment(
++      String const& sink_id,
++      discord::media::electron::IElectronVideoSinkAttachment* attachment);
++
++ private:
++  struct FrameReceiver;
++  scoped_refptr<FrameReceiver> receiver_;
++};
++
++class MODULES_EXPORT DiscordVideo final
++    : public ScriptWrappable,
++      public Supplement<ExecutionContext>,
++      public ExecutionContextLifecycleStateObserver {
++  DEFINE_WRAPPERTYPEINFO();
++
++ public:
++  static const char kSupplementName[];
++
++  explicit DiscordVideo(ExecutionContext* context);
++  ~DiscordVideo() override = default;
++
++  static DiscordVideo& From(ScriptState* script_state);
++
++  static String createVideoSink(ScriptState* script_state,
++                                MediaStreamTrack* track);
++  static void destroyVideoSink(ScriptState* script_state, String sink_id);
++
++  String CreateSink(WebMediaStreamTrack const& track);
++  void DestroySink(String const& sink_id);
++
++  // ExecutionContextLifecycleStateObserver:
++  void ContextDestroyed() override;
++  void ContextLifecycleStateChanged(mojom::blink::FrameLifecycleState) override;
++
++  void Trace(Visitor*) const override;
++
++ private:
++  WTF::HashSet<String> owned_sinks_;
++};
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_DISCORD_VIDEO_DISCORD_VIDEO_H
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/modules/discord_video/discord_video.idl b/third_party/blink/renderer/modules/discord_video/discord_video.idl
+new file mode 100644
+index 0000000000000000000000000000000000000000..841bd8f416a2420d1e86c2781f818e785374697b
+--- /dev/null
++++ b/third_party/blink/renderer/modules/discord_video/discord_video.idl
+@@ -0,0 +1,7 @@
++[
++    Exposed=Window,
++    ContextEnabled=DiscordVideo
++] interface DiscordVideo {
++  [Exposed=Window, CallWith=ScriptState] static DOMString createVideoSink(MediaStreamTrack track);
++  [Exposed=Window, CallWith=ScriptState] static void destroyVideoSink(DOMString sinkId);
++};
+diff --git a/third_party/blink/renderer/modules/discord_video/idls.gni b/third_party/blink/renderer/modules/discord_video/idls.gni
+new file mode 100644
+index 0000000000000000000000000000000000000000..c6733cac1ac9aec5eb2fe0386f1a691dc88ec046
+--- /dev/null
++++ b/third_party/blink/renderer/modules/discord_video/idls.gni
+@@ -0,0 +1,3 @@
++modules_idl_files = [
++    "discord_video.idl",
++]
+\ No newline at end of file
+diff --git a/third_party/blink/renderer/modules/modules_idl_files.gni b/third_party/blink/renderer/modules/modules_idl_files.gni
+index 8bf1bbd11f99fd55846457524923af011f9b7dbf..e76e5d3edfb9b50cd94ea9b3f05da185bee802c5 100644
+--- a/third_party/blink/renderer/modules/modules_idl_files.gni
++++ b/third_party/blink/renderer/modules/modules_idl_files.gni
+@@ -73,6 +73,7 @@ _idl_imports = [
+   "//third_party/blink/renderer/modules/delegated_ink/idls.gni",
+   "//third_party/blink/renderer/modules/managed_device/idls.gni",
+   "//third_party/blink/renderer/modules/device_orientation/idls.gni",
++  "//third_party/blink/renderer/modules/discord_video/idls.gni",
+   "//third_party/blink/renderer/modules/donottrack/idls.gni",
+   "//third_party/blink/renderer/modules/encoding/idls.gni",
+   "//third_party/blink/renderer/modules/encryptedmedia/idls.gni",

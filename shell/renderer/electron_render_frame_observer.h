@@ -26,6 +26,8 @@ class ElectronRenderFrameObserver : public content::RenderFrameObserver {
 
   // content::RenderFrameObserver:
   void DidClearWindowObject() override;
+  void DidCreateScriptContext(v8::Handle<v8::Context> context,
+                              int world_id) override;
   void DidInstallConditionalFeatures(v8::Handle<v8::Context> context,
                                      int world_id) override;
   void DraggableRegionsChanged() override;

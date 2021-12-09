@@ -1,0 +1,13 @@
+component("public") {
+  output_name = "discord"
+  sources = [
+      "discord_video_frame.cc",
+      "discord_video_frame.h",
+      "electron_video_iids.cc",
+      "electron_video_shared.h",
+  ]
+  deps = [
+    "//base",
+    "//media",
+  ]
+}

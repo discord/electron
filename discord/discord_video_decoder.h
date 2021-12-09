@@ -1,7 +1,8 @@
 #pragma once
 
 #include "base/memory/scoped_refptr.h"
-#include "discord/electron_video_shared.h"
+#include "electron/discord/public/discord_video_frame.h"
+#include "electron/discord/public/electron_video_shared.h"
 #include "media/base/video_decoder.h"
 
 namespace base {
@@ -35,26 +36,6 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
   DiscordVideoDecoderMediaThread* media_thread_state_{};
   bool started_initialize_{false};
   bool initialized_{false};
-};
-
-class DiscordVideoFormat : public ElectronObject<IElectronVideoFormat> {
- public:
-  DiscordVideoFormat();
-  ~DiscordVideoFormat() override;
-  ElectronVideoStatus SetCodec(ElectronVideoCodec codec) override;
-  ElectronVideoCodec GetCodec() override;
-  ElectronVideoStatus SetProfile(ElectronVideoCodecProfile profile) override;
-  ElectronVideoCodecProfile GetProfile() override;
-
- private:
-  ElectronVideoCodec codec_{ElectronVideoCodec::kCodecH264};
-  ElectronVideoCodecProfile profile_{H264PROFILE_MAIN};
-};
-
-class IElectronVideoFrameMedia : public IElectronVideoFrame {
- public:
-  static constexpr char IID[] = "IElectronVideoFrameMedia";
-  virtual ::media::VideoFrame* GetMediaFrame() = 0;
 };
 
 }  // namespace electron

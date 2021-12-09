@@ -30,6 +30,7 @@
 #include "third_party/blink/public/web/web_element.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_script_source.h"
+#include "third_party/blink/public/web/web_v8_features.h"
 #include "ui/base/resource/resource_bundle.h"
 
 namespace electron {
@@ -58,6 +59,18 @@ ElectronRenderFrameObserver::ElectronRenderFrameObserver(
 
 void ElectronRenderFrameObserver::DidClearWindowObject() {
   renderer_client_->DidClearWindowObject(render_frame_);
+}
+
+void ElectronRenderFrameObserver::DidCreateScriptContext(
+    v8::Handle<v8::Context> context,
+    int world_id) {
+  // Preload JS doesn't run early enough in context initialization to be able to
+  // modify conditional features because of issues with some preload scripts
+  // expecting JS features that aren't yet enabled to be present when the
+  // preload runs. So we have to enable this feature early.
+  if (render_frame_->IsMainFrame()) {
+    blink::WebV8Features::EnableDiscordVideo(context, true);
+  }
 }
 
 void ElectronRenderFrameObserver::DidInstallConditionalFeatures(

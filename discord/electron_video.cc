@@ -1,10 +1,16 @@
 #define ELECTRON_VIDEO_IMPLEMENTATION
-#define ELECTRON_VIDEO_DECLARE_IIDS
 
 #include <vector>
 
-#include "discord/discord_video_decoder.h"
-#include "discord/electron_video_shared.h"
+#include "electron/discord/discord_video_decoder.h"
+#include "electron/discord/discord_video_sink_manager.h"
+#include "electron/discord/public/discord_video_frame.h"
+#include "electron/discord/public/electron_video_shared.h"
+
+#ifdef __clang__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunsafe-buffer-usage-in-libc-call"
+#endif  //__clang__
 
 namespace discord {
 namespace media {
@@ -19,6 +25,8 @@ ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
     ptr = new DiscordVideoDecoder();
   } else if (!strcmp(clsid, "DiscordVideoFormat")) {
     ptr = new DiscordVideoFormat();
+  } else if (!strcmp(clsid, "DiscordVideoSinkManager")) {
+    ptr = new DiscordVideoSinkManager();
   }
 
   if (!ptr) {
@@ -31,3 +39,7 @@ ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
 }  // namespace electron
 }  // namespace media
 }  // namespace discord
+
+#ifdef __clang__
+#pragma GCC diagnostic pop
+#endif  //__clang__

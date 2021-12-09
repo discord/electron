@@ -464,6 +464,7 @@ source_set("electron_lib") {
     "//content/public/utility",
     "//device/bluetooth",
     "//device/bluetooth/public/cpp",
+    "//electron/discord/public",
     "//gin",
     "//media/capture/mojom:video_capture",
     "//media/mojo/mojom",
@@ -764,7 +765,7 @@ electron_paks("packed_resources") {
 
 copy("discord_includes") {
   sources = [
-    "discord/electron_video_shared.h"
+    "discord/public/electron_video_shared.h"
   ]
   outputs = [ "$root_out_dir/include/{{source_file_part}}"]
 }

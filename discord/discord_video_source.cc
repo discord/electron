@@ -1,6 +1,7 @@
 #include "electron/discord/discord_video_source.h"
 
 #include "discord/discord_video_decoder.h"
+#include "electron/discord/public/discord_video_frame.h"
 #include "gpu/command_buffer/client/client_shared_image.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"

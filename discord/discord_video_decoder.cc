@@ -1,4 +1,4 @@
-#include "discord/discord_video_decoder.h"
+#include "electron/discord/discord_video_decoder.h"
 
 #include "base/location.h"
 #include "base/logging.h"
@@ -32,8 +32,6 @@ namespace discord {
 namespace media {
 namespace electron {
 
-constexpr char IElectronVideoFrameMedia::IID[];
-
 namespace {
 using InitCB = CrossThreadOnceFunction<void(ElectronVideoStatus)>;
 
@@ -56,73 +54,6 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
 }
 
 }  // namespace
-
-DiscordVideoFormat::DiscordVideoFormat() {}
-DiscordVideoFormat::~DiscordVideoFormat() {}
-
-ElectronVideoStatus DiscordVideoFormat::SetCodec(ElectronVideoCodec codec) {
-  if (static_cast<int>(codec) > static_cast<int>(kVideoCodecMax)) {
-    return ElectronVideoStatus::Failure;
-  }
-
-  codec_ = codec;
-  return ElectronVideoStatus::Success;
-}
-
-ElectronVideoCodec DiscordVideoFormat::GetCodec() {
-  return codec_;
-}
-
-ElectronVideoStatus DiscordVideoFormat::SetProfile(
-    ElectronVideoCodecProfile profile) {
-  if (static_cast<int>(profile) > static_cast<int>(VIDEO_CODEC_PROFILE_MAX)) {
-    return ElectronVideoStatus::Failure;
-  }
-
-  profile_ = profile;
-  return ElectronVideoStatus::Success;
-}
-
-ElectronVideoCodecProfile DiscordVideoFormat::GetProfile() {
-  return profile_;
-}
-
-class DiscordVideoFrame
-    : public ElectronObject<IElectronVideoFrameMedia, IElectronVideoFrame> {
- public:
-  DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame);
-  uint32_t GetWidth() override;
-  uint32_t GetHeight() override;
-  uint32_t GetTimestamp() override;
-  ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) override;
-  ::media::VideoFrame* GetMediaFrame() override;
-
- private:
-  scoped_refptr<::media::VideoFrame> frame_;
-};
-
-DiscordVideoFrame::DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame)
-    : frame_(frame) {}
-
-uint32_t DiscordVideoFrame::GetWidth() {
-  return frame_->coded_size().width();
-}
-
-uint32_t DiscordVideoFrame::GetHeight() {
-  return frame_->coded_size().height();
-}
-
-uint32_t DiscordVideoFrame::GetTimestamp() {
-  return static_cast<uint32_t>(frame_->timestamp().InMicroseconds());
-}
-
-ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
-  return ElectronVideoStatus::Failure;
-}
-
-::media::VideoFrame* DiscordVideoFrame::GetMediaFrame() {
-  return frame_.get();
-}
 
 class DiscordVideoDecoderMediaThread {
  public:

@@ -137,7 +137,7 @@ class OffScreenRenderWidgetHostView
   void SetIsLoading(bool is_loading) override {}
   void TextInputStateChanged(const ui::mojom::TextInputState& params) override {
   }
-  void ImeCancelComposition() override {}
+  void ImeCancelComposition() override;
   void RenderProcessGone() override;
   void ShowWithVisibility(content::PageVisibilityState page_visibility) final;
   void Destroy() override;
@@ -162,9 +162,9 @@ class OffScreenRenderWidgetHostView
   std::unique_ptr<content::SyntheticGestureTarget>
   CreateSyntheticGestureTarget() override;
   void ImeCompositionRangeChanged(
-      const gfx::Range&,
+      const gfx::Range& range,
       const std::optional<std::vector<gfx::Rect>>& character_bounds,
-      const std::optional<std::vector<gfx::Rect>>& line_bounds) override {}
+      const std::optional<std::vector<gfx::Rect>>& line_bounds) override;
   gfx::Size GetCompositorViewportPixelSize() override;
   ui::Compositor* GetCompositor() override;
 
@@ -172,6 +172,14 @@ class OffScreenRenderWidgetHostView
       content::RenderWidgetHost*,
       content::RenderWidgetHost*,
       content::WebContentsView*) override;
+
+  void RequestCompositionUpdates(bool enable);
+  void SelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                              base::i18n::TextDirection anchor_dir,
+                              const gfx::Rect& focus_rect,
+                              base::i18n::TextDirection focus_dir,
+                              const gfx::Rect& bounding_box,
+                              bool is_anchor_first) override;
 
   const viz::LocalSurfaceId& GetLocalSurfaceId() const override;
   const viz::FrameSinkId& GetFrameSinkId() const override;

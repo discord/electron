@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nobody <nobody@nobody>
+Date: Mon, 22 Oct 2018 10:45:53 -0700
+Subject: ignore_mouse_buttons_other_than_left_right_middle.patch
+
+disable navigation via mouse4 and mouse5
+
+diff --git a/ui/views/win/hwnd_message_handler.cc b/ui/views/win/hwnd_message_handler.cc
+index da086aa1596ae4e9848ee95a0efe26bbbcbb6bf8..2e585190194eec679c1d448b6c40d3b2784fc86e 100644
+--- a/ui/views/win/hwnd_message_handler.cc
++++ b/ui/views/win/hwnd_message_handler.cc
+@@ -1178,6 +1178,11 @@ LRESULT HWNDMessageHandler::HandleMouseMessage(unsigned int message,
+                                                WPARAM w_param,
+                                                LPARAM l_param,
+                                                bool* handled) {
++  if (message == WM_XBUTTONUP || message == WM_XBUTTONDOWN || message == WM_XBUTTONDBLCLK) {
++    *handled = false;
++    return 0;
++  }
++
+   // Don't track forwarded mouse messages. We expect the caller to track the
+   // mouse.
+   base::WeakPtr<HWNDMessageHandler> ref(msg_handler_weak_factory_.GetWeakPtr());

@@ -2022,7 +2022,7 @@ ui::mojom::WindowShowState NativeWindowViews::GetRestoredState() {
   if (IsFullscreen())
     return ui::mojom::WindowShowState::kFullscreen;
 
-  return ui::mojom::WindowShowState::kNormal;
+  return ui::mojom::WindowShowState::kDefault;
 }
 
 void NativeWindowViews::MoveBehindTaskBarIfNeeded() {

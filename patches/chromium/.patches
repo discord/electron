@@ -311,3 +311,4 @@ cherry-pick-7d3266fe2240.patch
 cherry-pick-b643479522e2.patch
 cherry-pick-bbc335d274ed.patch
 ignore_mouse_buttons_other_than_left_right_middle.patch
+use_sw_show_for_initial_state_not_shownormal.patch

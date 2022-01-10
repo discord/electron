@@ -30,6 +30,7 @@
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/drop_data.h"
 #include "electron/buildflags/buildflags.h"
 #include "gin/handle.h"
 #include "gin/wrappable.h"
@@ -500,6 +501,13 @@ class WebContents final : public ExclusiveAccessContext,
   // disable copy
   WebContents(const WebContents&) = delete;
   WebContents& operator=(const WebContents&) = delete;
+
+  bool start_dragging = false;
+  bool dragging = false;
+  content::DropData drop_data;
+  blink::DragOperationsMask drag_ops = blink::kDragOperationNone;
+  gfx::ImageSkia drag_image;
+  gfx::Vector2d drag_image_offset;
 
  private:
   // Does not manage lifetime of |web_contents|.

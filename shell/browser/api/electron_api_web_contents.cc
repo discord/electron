@@ -1961,6 +1961,10 @@ bool WebContents::EmitNavigationEvent(
   return event->GetDefaultPrevented();
 }
 
+void WebContents::UpdateCursor(const ui::Cursor& cursor) {
+  OnCursorChanged(cursor);
+}
+
 void WebContents::Message(bool internal,
                           const std::string& channel,
                           blink::CloneableMessage arguments,

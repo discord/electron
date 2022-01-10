@@ -517,6 +517,8 @@ class WebContents final : public ExclusiveAccessContext,
   gfx::ImageSkia drag_image;
   gfx::Vector2d drag_image_offset;
 
+  void UpdateCursor(const ui::Cursor& cursor);
+
  private:
   // Does not manage lifetime of |web_contents|.
   WebContents(v8::Isolate* isolate, content::WebContents* web_contents);

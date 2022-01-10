@@ -366,10 +366,7 @@ void OffScreenRenderWidgetHostView::SetBackgroundColor(SkColor color) {
   // We short-cut here to show a sensible color before that happens.
   UpdateBackgroundColorFromRenderer(color);
 
-  if (render_widget_host_ && render_widget_host_->owner_delegate()) {
-    render_widget_host_->owner_delegate()->SetBackgroundOpaque(
-        SkColorGetA(color) == SK_AlphaOPAQUE);
-  }
+  content::RenderWidgetHostViewBase::SetBackgroundColor(color);
 }
 
 std::optional<SkColor> OffScreenRenderWidgetHostView::GetBackgroundColor() {

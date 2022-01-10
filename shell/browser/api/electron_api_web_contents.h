@@ -47,6 +47,7 @@
 #include "shell/common/gin_helper/pinnable.h"
 #include "shell/common/web_contents_utility.mojom.h"
 #include "ui/base/models/image_model.h"
+#include "ui/gfx/range/range.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
 #include "extensions/common/mojom/view_type.mojom-forward.h"
@@ -323,6 +324,15 @@ class WebContents final : public ExclusiveAccessContext,
   int GetFrameRate() const;
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
+
+  // Methods for offscreen IME
+  void SendImeEvent(const gin_helper::Dictionary& event);
+  void OnImeCompositionRangeChanged(
+      const gfx::Range& range,
+      const std::vector<gfx::Rect>& character_bounds);
+  void OnSelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                const gfx::Rect& focus_rect,
+                                bool is_anchor_first);
 
   // Methods for zoom handling.
   void SetZoomLevel(double level);

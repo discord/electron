@@ -1996,6 +1996,10 @@ bool WebContents::EmitNavigationEvent(
   return event->GetDefaultPrevented();
 }
 
+void WebContents::UpdateCursor(const ui::Cursor& cursor) {
+  OnCursorChanged(cursor);
+}
+
 void WebContents::OnFirstNonEmptyLayout(
     content::RenderFrameHost* render_frame_host) {
   if (render_frame_host == web_contents()->GetPrimaryMainFrame()) {

@@ -243,6 +243,23 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
     return;
   }
 
+  media::VideoRotation rotation;
+  switch (frame.rotation) {
+    case discord::media::electron::kRotation0:
+      rotation = media::VIDEO_ROTATION_0;
+      break;
+    case discord::media::electron::kRotation90:
+      rotation = media::VIDEO_ROTATION_90;
+      break;
+    case discord::media::electron::kRotation180:
+      rotation = media::VIDEO_ROTATION_180;
+      break;
+    case discord::media::electron::kRotation270:
+      rotation = media::VIDEO_ROTATION_270;
+      break;
+  }
+  video_frame->metadata().transformation = media::VideoTransformation(rotation);
+
   PostCrossThreadTask(
       *video_task_runner_.get(), FROM_HERE,
       CrossThreadBindOnce(&VideoSourceDelegate::DoRenderFrameOnIOThread,

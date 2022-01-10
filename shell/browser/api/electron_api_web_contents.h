@@ -48,6 +48,7 @@
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/range/range.h"
 #include "v8/include/cppgc/persistent.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
@@ -339,6 +340,15 @@ class WebContents final : public ExclusiveAccessContext,
   int GetFrameRate() const;
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
+
+  // Methods for offscreen IME
+  void SendImeEvent(const gin_helper::Dictionary& event);
+  void OnImeCompositionRangeChanged(
+      const gfx::Range& range,
+      const std::vector<gfx::Rect>& character_bounds);
+  void OnSelectionBoundsChanged(const gfx::Rect& anchor_rect,
+                                const gfx::Rect& focus_rect,
+                                bool is_anchor_first);
 
   // Methods for zoom handling.
   void SetZoomLevel(double level);

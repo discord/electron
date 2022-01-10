@@ -444,6 +444,27 @@ void OffScreenRenderWidgetHostView::InitAsPopup(
   Show();
 }
 
+void OffScreenRenderWidgetHostView::UpdateCursor(
+    const ui::Cursor& cursor) {
+  if (!render_widget_host_) {
+    return;
+  }
+
+  auto* web_contents =
+      static_cast<content::WebContentsImpl*>(render_widget_host_->delegate());
+  if (!web_contents) {
+    return;
+  }
+
+  auto* electron_web_contents =
+      static_cast<electron::api::WebContents*>(web_contents->GetDelegate());
+  if (!electron_web_contents) {
+    return;
+  }
+
+  electron_web_contents->UpdateCursor(cursor);
+}
+
 input::CursorManager* OffScreenRenderWidgetHostView::GetCursorManager() {
   return cursor_manager_.get();
 }

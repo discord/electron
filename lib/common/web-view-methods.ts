@@ -55,6 +55,7 @@ export const syncMethods = new Set([
   'getZoomLevel',
   'setZoomFactor',
   'setZoomLevel',
+  'sendImeEvent',
   ...navigationHistorySyncMethods
 ]);
 

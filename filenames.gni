@@ -22,6 +22,8 @@ filenames = {
   ]
 
   lib_sources_linux = [
+    "discord/overlay_linux.cc",
+
     "shell/browser/browser_linux.cc",
     "shell/browser/electron_browser_main_parts_linux.cc",
     "shell/browser/lib/power_observer_linux.cc",
@@ -72,6 +74,8 @@ filenames = {
   lib_sources_posix = [ "shell/browser/electron_browser_main_parts_posix.cc" ]
 
   lib_sources_win = [
+    "discord/overlay_win.cc",
+
     "shell/browser/api/electron_api_power_monitor_win.cc",
     "shell/browser/api/electron_api_system_preferences_win.cc",
     "shell/browser/browser_win.cc",
@@ -121,6 +125,7 @@ filenames = {
   ]
 
   lib_sources_mac = [
+    "discord/overlay_mac.cc",
     "shell/app/electron_main_delegate_mac.h",
     "shell/app/electron_main_delegate_mac.mm",
     "shell/browser/animation_util.h",
@@ -234,6 +239,8 @@ filenames = {
   ]
 
   lib_sources = [
+    "discord/overlay.h",
+
     "shell/app/command_line_args.cc",
     "shell/app/command_line_args.h",
     "shell/app/electron_content_client.cc",

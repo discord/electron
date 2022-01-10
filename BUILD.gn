@@ -794,6 +794,13 @@ electron_paks("packed_resources") {
   }
 }
 
+copy("discord_includes") {
+  sources = [
+    "discord/electron_video_shared.h"
+  ]
+  outputs = [ "$root_out_dir/include/{{source_file_part}}"]
+}
+
 if (is_mac) {
   electron_framework_name = "$electron_product_name Framework"
   electron_helper_name = "$electron_product_name Helper"
@@ -1420,6 +1427,7 @@ dist_zip("electron_dist_zip") {
     ":electron_app",
     ":electron_version_file",
     ":licenses",
+    ":discord_includes",
   ]
   if (is_linux) {
     if (is_official_build) {

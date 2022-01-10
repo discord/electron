@@ -240,8 +240,12 @@ filenames = {
   ]
 
   lib_sources = [
+    "discord/discord_video_decoder.cc",
+    "discord/discord_video_decoder.h",
     "discord/discord_video_source.cc",
     "discord/discord_video_source.h",
+    "discord/electron_video.cc",
+    "discord/electron_video_shared.h",
     "discord/module.cc",
     "discord/overlay.h",
 

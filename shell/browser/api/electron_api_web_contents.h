@@ -502,6 +502,8 @@ class WebContents final : public ExclusiveAccessContext,
   gfx::ImageSkia drag_image;
   gfx::Vector2d drag_image_offset;
 
+  void UpdateCursor(const ui::Cursor& cursor);
+
  private:
   // Store last emitted favicon URLs to avoid duplicate page-favicon-updated
   // events

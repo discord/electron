@@ -7,7 +7,7 @@
       "dom",
       "dom.iterable"
     ],
-    "sourceMap": true,
+    "sourceMap": false,
     "experimentalDecorators": true,
     "strict": true,
     "baseUrl": ".",

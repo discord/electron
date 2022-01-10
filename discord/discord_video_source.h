@@ -28,6 +28,7 @@ struct DiscordFrame {
 #if defined(OS_WIN)
     HANDLE texture_handle;
 #endif
+    discord::media::electron::IElectronVideoFrame* electron;
   } frame;
   int32_t width;
   int32_t height;

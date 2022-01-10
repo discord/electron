@@ -205,7 +205,8 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
     auto* yuv = &frame.frame.yuv;
     video_frame = media::VideoFrame::WrapExternalYuvData(
         media::PIXEL_FORMAT_I420, size, gfx::Rect(size), size, yuv->y_stride,
-        yuv->u_stride, yuv->v_stride, yuv->y, yuv->u, yuv->v,
+        yuv->u_stride, yuv->v_stride, const_cast<uint8_t*>(yuv->y),
+        const_cast<uint8_t*>(yuv->u), const_cast<uint8_t*>(yuv->v),
         base::Microseconds(frame.timestamp_us));
 #ifdef OS_WIN
   } else if (frame.type == DISCORD_FRAME_NATIVE) {
@@ -243,6 +244,23 @@ void MediaStreamDiscordVideoSource::VideoSourceDelegate::OnFrame(
     releaseCB(userData);
     return;
   }
+
+  media::VideoRotation rotation;
+  switch (frame.rotation) {
+    case discord::media::electron::kRotation0:
+      rotation = media::VIDEO_ROTATION_0;
+      break;
+    case discord::media::electron::kRotation90:
+      rotation = media::VIDEO_ROTATION_90;
+      break;
+    case discord::media::electron::kRotation180:
+      rotation = media::VIDEO_ROTATION_180;
+      break;
+    case discord::media::electron::kRotation270:
+      rotation = media::VIDEO_ROTATION_270;
+      break;
+  }
+  video_frame->metadata().transformation = media::VideoTransformation(rotation);
 
   PostCrossThreadTask(
       *video_task_runner_.get(), FROM_HERE,

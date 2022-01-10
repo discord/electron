@@ -12,29 +12,8 @@
 
 namespace blink {
 
-struct DiscordYUVFrame {
-  uint8_t* y;
-  uint8_t* u;
-  uint8_t* v;
-  int32_t y_stride;
-  int32_t u_stride;
-  int32_t v_stride;
-};
-
-struct DiscordFrame {
-  int64_t timestamp_us;
-  union {
-    DiscordYUVFrame yuv;
-#if defined(OS_WIN)
-    HANDLE texture_handle;
-#endif
-    discord::media::electron::IElectronVideoFrame* electron;
-  } frame;
-  int32_t width;
-  int32_t height;
-  int32_t type;
-};
 using DiscordFrameReleaseCB = void (*)(void*);
+using discord::media::electron::DiscordFrame;
 
 class MODULES_EXPORT MediaStreamDiscordVideoSource
     : public MediaStreamVideoSource {

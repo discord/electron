@@ -6,10 +6,10 @@ Subject: ignore_mouse_buttons_other_than_left_right_middle.patch
 disable navigation via mouse4 and mouse5
 
 diff --git a/ui/views/win/hwnd_message_handler.cc b/ui/views/win/hwnd_message_handler.cc
-index da086aa1596ae4e9848ee95a0efe26bbbcbb6bf8..2e585190194eec679c1d448b6c40d3b2784fc86e 100644
+index e3bb491f218b2e5d96c424e40a071a618b345039..0c57a08c6119a430f143250a07feeffff2d17a0c 100644
 --- a/ui/views/win/hwnd_message_handler.cc
 +++ b/ui/views/win/hwnd_message_handler.cc
-@@ -1178,6 +1178,11 @@ LRESULT HWNDMessageHandler::HandleMouseMessage(unsigned int message,
+@@ -1182,6 +1182,11 @@ LRESULT HWNDMessageHandler::HandleMouseMessage(unsigned int message,
                                                 WPARAM w_param,
                                                 LPARAM l_param,
                                                 bool* handled) {

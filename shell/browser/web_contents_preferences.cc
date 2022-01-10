@@ -187,6 +187,10 @@ WebContentsPreferences::WebContentsPreferences(
       }
     }
   }
+
+  // apply our own no-compromise "preferences"
+  node_integration_ = false;
+  context_isolation_ = true;
 }
 
 WebContentsPreferences::~WebContentsPreferences() {

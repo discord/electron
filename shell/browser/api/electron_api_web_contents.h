@@ -47,6 +47,7 @@
 #include "shell/common/gin_helper/wrappable.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "ui/base/models/image_model.h"
+#include "ui/gfx/image/image_skia.h"
 #include "v8/include/cppgc/persistent.h"
 
 #if BUILDFLAG(ENABLE_ELECTRON_EXTENSIONS)
@@ -483,6 +484,13 @@ class WebContents final : public ExclusiveAccessContext,
   // disable copy
   WebContents(const WebContents&) = delete;
   WebContents& operator=(const WebContents&) = delete;
+
+  bool start_dragging = false;
+  bool dragging = false;
+  content::DropData drop_data;
+  blink::DragOperationsMask drag_ops = blink::kDragOperationNone;
+  gfx::ImageSkia drag_image;
+  gfx::Vector2d drag_image_offset;
 
  private:
   // Store last emitted favicon URLs to avoid duplicate page-favicon-updated

@@ -240,6 +240,9 @@ filenames = {
   ]
 
   lib_sources = [
+    "discord/discord_video_source.cc",
+    "discord/discord_video_source.h",
+    "discord/module.cc",
     "discord/overlay.h",
 
     "shell/app/command_line_args.cc",

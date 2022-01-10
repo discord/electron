@@ -8,6 +8,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "shell/browser/api/electron_api_web_contents.h"
 #include "shell/browser/native_window.h"
 #include "ui/display/screen.h"
 #include "ui/display/screen_info.h"
@@ -169,6 +170,16 @@ void OffScreenWebContentsView::StartDragging(
     const gfx::Vector2d& cursor_offset,
     const gfx::Rect& drag_obj_rect,
     const blink::mojom::DragEventSourceInfo& event_info) {
+  auto* contents_delegate =
+      static_cast<electron::api::WebContents*>(web_contents_->GetDelegate());
+  if (contents_delegate) {
+    contents_delegate->start_dragging = true;
+    contents_delegate->drop_data = drop_data;
+    contents_delegate->drag_ops = allowed_ops;
+    contents_delegate->drag_image = image;
+    contents_delegate->drag_image_offset = cursor_offset;
+    return;
+  }
   if (web_contents_) {
     auto* source_rwh = static_cast<content::RenderWidgetHostImpl*>(
         source_rfh.GetRenderWidgetHost());

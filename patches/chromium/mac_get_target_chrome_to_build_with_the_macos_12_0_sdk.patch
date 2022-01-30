@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nico Weber <thakis@chromium.org>
+Date: Mon, 1 Nov 2021 15:40:52 +0000
+Subject: mac: Get target "chrome" to build with the macOS 12.0 SDK
+
+No behavior change.
+
+AX-Relnotes: n/a.
+Bug: 1265179
+Change-Id: I8b329f1d1eaccf555c9fa77b30f0544d3dc43c6c
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/3252033
+Auto-Submit: Nico Weber <thakis@chromium.org>
+Commit-Queue: Abigail Klein <abigailbklein@google.com>
+Reviewed-by: Abigail Klein <abigailbklein@google.com>
+Cr-Commit-Position: refs/heads/main@{#936898}
+
+diff --git a/content/browser/accessibility/accessibility_tree_formatter_utils_mac.mm b/content/browser/accessibility/accessibility_tree_formatter_utils_mac.mm
+index c58dcb76eede2b3671bc043f4ca5adc35749f2d6..fdfeb7972dcaa4da45a24e5b7d236ab836d83b87 100644
+--- a/content/browser/accessibility/accessibility_tree_formatter_utils_mac.mm
++++ b/content/browser/accessibility/accessibility_tree_formatter_utils_mac.mm
+@@ -11,6 +11,16 @@
+ 
+ using ui::AXPropertyNode;
+ 
++#if !defined(MAC_OS_VERSION_12_0) || \
++    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_12_0
++using AXTextMarkerRangeRef = CFTypeRef;
++using AXTextMarkerRef = CFTypeRef;
++extern "C" {
++AXTextMarkerRef AXTextMarkerRangeCopyStartMarker(AXTextMarkerRangeRef);
++AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(AXTextMarkerRangeRef);
++}  // extern "C"
++#endif
++
+ namespace content {
+ namespace a11y {
+ 
+@@ -126,8 +136,7 @@
+ 
+ AttributeInvoker::AttributeInvoker(const id node,
+                                    const LineIndexer* line_indexer)
+-    : node(node), line_indexer(line_indexer) {
+-}
++    : node(node), line_indexer(line_indexer) {}
+ 
+ OptionalNSObject AttributeInvoker::Invoke(
+     const AXPropertyNode& property_node) const {
+diff --git a/content/browser/accessibility/browser_accessibility_cocoa.mm b/content/browser/accessibility/browser_accessibility_cocoa.mm
+index 49ecdf4974deb712ae710828e93b10d207de396c..ceabb00f606c121ab458bda459534f8dd5695ae4 100644
+--- a/content/browser/accessibility/browser_accessibility_cocoa.mm
++++ b/content/browser/accessibility/browser_accessibility_cocoa.mm
+@@ -40,8 +40,6 @@
+ 
+ #import "ui/accessibility/platform/ax_platform_node_mac.h"
+ 
+-using AXTextMarkerRangeRef = CFTypeRef;
+-using AXTextMarkerRef = CFTypeRef;
+ using StringAttribute = ax::mojom::StringAttribute;
+ using content::AccessibilityMatchPredicate;
+ using content::BrowserAccessibility;
+@@ -241,33 +239,29 @@
+ const int kAXResultsLimitNoLimit = -1;
+ 
+ #ifndef MAS_BUILD
+-extern "C" {
+-
+ // The following are private accessibility APIs required for cursor navigation
+ // and text selection. VoiceOver started relying on them in Mac OS X 10.11.
++// They are public as of the 12.0 SDK.
++#if !defined(MAC_OS_VERSION_12_0) || \
++    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_12_0
++using AXTextMarkerRangeRef = CFTypeRef;
++using AXTextMarkerRef = CFTypeRef;
++extern "C" {
+ CFTypeID AXTextMarkerGetTypeID();
+-
+-AXTextMarkerRef AXTextMarkerCreate(CFAllocatorRef allocator,
++AXTextMarkerRef AXTextMarkerCreate(CFAllocatorRef,
+                                    const UInt8* bytes,
+                                    CFIndex length);
+-
+-const UInt8* AXTextMarkerGetBytePtr(AXTextMarkerRef text_marker);
+-
+-size_t AXTextMarkerGetLength(AXTextMarkerRef text_marker);
++size_t AXTextMarkerGetLength(AXTextMarkerRef);
++const UInt8* AXTextMarkerGetBytePtr(AXTextMarkerRef);
+ 
+ CFTypeID AXTextMarkerRangeGetTypeID();
+-
+-AXTextMarkerRangeRef AXTextMarkerRangeCreate(CFAllocatorRef allocator,
+-                                             AXTextMarkerRef start_marker,
+-                                             AXTextMarkerRef end_marker);
+-
+-AXTextMarkerRef AXTextMarkerRangeCopyStartMarker(
+-    AXTextMarkerRangeRef text_marker_range);
+-
+-AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(
+-    AXTextMarkerRangeRef text_marker_range);
+-
++AXTextMarkerRangeRef AXTextMarkerRangeCreate(CFAllocatorRef,
++                                             AXTextMarkerRef start,
++                                             AXTextMarkerRef end);
++AXTextMarkerRef AXTextMarkerRangeCopyStartMarker(AXTextMarkerRangeRef);
++AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(AXTextMarkerRangeRef);
+ }  // extern "C"
++#endif
+ 
+ // AXTextMarkerCreate is a system function that makes a copy of the data buffer
+ // given to it.
+@@ -789,7 +783,8 @@ bool IsSelectedStateRelevant(BrowserAccessibility* item) {
+ 
+ id content::AXTextMarkerRangeFrom(id anchor_textmarker, id focus_textmarker) {
+   AXTextMarkerRangeRef cf_marker_range = AXTextMarkerRangeCreate(
+-      kCFAllocatorDefault, anchor_textmarker, focus_textmarker);
++      kCFAllocatorDefault, static_cast<AXTextMarkerRef>(anchor_textmarker),
++      static_cast<AXTextMarkerRef>(focus_textmarker));
+   return [static_cast<id>(cf_marker_range) autorelease];
+ }
+ #endif
+@@ -869,8 +864,8 @@ + (void)initialize {
+       {NSAccessibilityRowHeaderUIElementsAttribute, @"rowHeaders"},
+       {NSAccessibilityRowIndexRangeAttribute, @"rowIndexRange"},
+       {NSAccessibilityRowsAttribute, @"rows"},
+-      // TODO(aboxhall): expose
+-      // NSAccessibilityServesAsTitleForUIElementsAttribute
++  // TODO(aboxhall): expose
++  // NSAccessibilityServesAsTitleForUIElementsAttribute
+ #ifndef MAS_BUILD
+       {NSAccessibilityStartTextMarkerAttribute, @"startTextMarker"},
+ #endif
+@@ -1407,7 +1402,7 @@ - (id)focusableAncestor {
+     return nil;
+ 
+   BrowserAccessibilityCocoa* focusableRoot = self;
+-  while (![focusableRoot owner]->HasState(ax::mojom::State::kFocusable)) {
++  while (![focusableRoot owner] -> HasState(ax::mojom::State::kFocusable)) {
+     BrowserAccessibilityCocoa* parent = [focusableRoot parent];
+     if (!parent || ![parent isKindOfClass:[self class]] ||
+         ![parent instanceActive]) {
+@@ -1554,7 +1549,7 @@ - (NSNumber*)treeItemRowIndex {
+ 
+   // First find an ancestor that establishes this tree or treegrid. We
+   // will search in this ancestor to calculate our row index.
+-  BrowserAccessibility* container = [self owner]->PlatformGetParent();
++  BrowserAccessibility* container = [self owner] -> PlatformGetParent();
+   while (container && container->GetRole() != ax::mojom::Role::kTree &&
+          container->GetRole() != ax::mojom::Role::kTreeGrid) {
+     container = container->PlatformGetParent();
+@@ -3190,16 +3185,18 @@ - (id)accessibilityAttributeValue:(NSString*)attribute
+     return CGRectIsNull(rect) ? nil : [NSValue valueWithRect:rect];
+   }
+ 
+-  if ([attribute isEqualToString:
+-                   NSAccessibilityUIElementCountForSearchPredicateParameterizedAttribute]) {
++  if ([attribute
++          isEqualToString:
++              NSAccessibilityUIElementCountForSearchPredicateParameterizedAttribute]) {
+     OneShotAccessibilityTreeSearch search(_owner);
+     if (InitializeAccessibilityTreeSearch(&search, parameter))
+       return @(search.CountMatches());
+     return nil;
+   }
+ 
+-  if ([attribute isEqualToString:
+-                     NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute]) {
++  if ([attribute
++          isEqualToString:
++              NSAccessibilityUIElementsForSearchPredicateParameterizedAttribute]) {
+     OneShotAccessibilityTreeSearch search(_owner);
+     if (InitializeAccessibilityTreeSearch(&search, parameter)) {
+       size_t count = search.CountMatches();
+@@ -3563,10 +3560,8 @@ - (NSArray*)accessibilityAttributeNames {
+     ]];
+   } else if ([role isEqualToString:NSAccessibilityOutlineRole]) {
+     [ret addObjectsFromArray:@[
+-      NSAccessibilitySelectedRowsAttribute,
+-      NSAccessibilityRowsAttribute,
+-      NSAccessibilityColumnsAttribute,
+-      NSAccessibilityOrientationAttribute
++      NSAccessibilitySelectedRowsAttribute, NSAccessibilityRowsAttribute,
++      NSAccessibilityColumnsAttribute, NSAccessibilityOrientationAttribute
+     ]];
+   }
+ 

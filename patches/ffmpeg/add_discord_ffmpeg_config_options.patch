@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Tue, 1 Feb 2022 04:45:11 +0000
+Subject: add discord ffmpeg config options.
+
+changes:
+ - support gif decoder (video backgrounds)
+ - support hevc decoder (codec diversity)
+ - support mp4 muxer (clips)
+ - support file protocol (clips)
+ - add .sigs entries needed by clips
+
+diff --git a/chromium/ffmpeg.sigs b/chromium/ffmpeg.sigs
+index 603dcc7d4f26c2e12c9bdce47a8c517ef8a8b38f..6388165a17254e4c2d832d8fecad55f05d691c73 100644
+--- a/chromium/ffmpeg.sigs
++++ b/chromium/ffmpeg.sigs
+@@ -66,3 +66,51 @@ AVFrame *av_frame_clone(const AVFrame *src);
+ void av_frame_unref(AVFrame *frame);
+ void av_frame_free(AVFrame **frame);
+ AVFrame* av_frame_alloc();
++
++
++//------------------------------------------------
++// functions from avutil used in Discord Clips feature
++//------------------------------------------------
++int av_buffer_make_writable(AVBufferRef **buf);
++int av_channel_layout_copy(AVChannelLayout *dst, const AVChannelLayout *src);
++AVFrame *av_frame_alloc(void);
++int av_frame_get_buffer(AVFrame *frame, int align);
++int av_frame_make_writable(AVFrame *frame);
++void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl, char *line, int line_size, int *print_prefix);
++void av_log_set_callback(void (*callback)(void*, int, const char*, va_list));
++void av_log_set_level(int level);
++AVDictionaryEntry *av_dict_get(const AVDictionary *m, const char *key, const AVDictionaryEntry *prev, int flags);
++int av_dict_set(AVDictionary **pm, const char *key, const char *value, int flags);
++void *av_realloc_f(void *ptr, size_t nelem, size_t elsize);
++
++
++//------------------------------------------------
++// functions from avformat used in Discord Clips feature
++//------------------------------------------------
++void av_dump_format(AVFormatContext *ic, int index, const char *url, int is_output);
++const AVOutputFormat *av_guess_format(const char *short_name, const char *filename, const char *mime_type);
++int av_interleaved_write_frame(AVFormatContext *s, AVPacket *pkt);
++int av_write_trailer(AVFormatContext *s);
++int avformat_alloc_output_context2(AVFormatContext **ctx, const AVOutputFormat *oformat, const char *format_name, const char *filename);
++void avformat_free_context(AVFormatContext *s);
++AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c);
++int avformat_write_header(AVFormatContext *s, AVDictionary **options);
++int avio_close(AVIOContext *s);
++int avio_open(AVIOContext **s, const char *url, int flags);
++
++
++//------------------------------------------------
++// functions from avcodec used in Discord Clips feature
++//------------------------------------------------
++int av_new_packet(AVPacket *pkt, int size);
++AVPacket *av_packet_alloc(void);
++void av_packet_free(AVPacket **pkt);
++void av_packet_rescale_ts(AVPacket *pkt, AVRational tb_src, AVRational tb_dst);
++void av_packet_unref(AVPacket *pkt);
++AVCodecContext *avcodec_alloc_context3(const AVCodec *codec);
++const AVCodec *avcodec_find_encoder(enum AVCodecID id);
++int avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options);
++int avcodec_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
++int avcodec_send_frame(AVCodecContext *avctx, const AVFrame *frame);
++int av_packet_ref(AVPacket *dst, const AVPacket *src);
++int avcodec_parameters_copy(AVCodecParameters *dst, const AVCodecParameters *src);

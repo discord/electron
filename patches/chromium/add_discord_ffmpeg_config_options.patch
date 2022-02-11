@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 16 May 2024 11:29:35 -0700
+Subject: add discord ffmpeg config options.
+
+changes:
+ - support gif decoder (video backgrounds)
+ - support hevc decoder (codec diversity)
+ - support mp4 muxer (clips)
+ - support file protocol (clips)
+ - add .sigs entries needed by clips
+
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index 6a0d5f51ba64ea0a96fa45552f8743887412b389..5211b72295f3d9a0c883140e7762e279a2be63db 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -680,9 +680,9 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+         # Common codecs.
+         '--enable-decoder=vorbis,libopus,flac',
+         '--enable-decoder=pcm_u8,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,mp3',
+-        '--enable-decoder=pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw',
+-        '--enable-demuxer=ogg,matroska,wav,flac,mp3,mov',
+-        '--enable-parser=opus,vorbis,flac,mpegaudio,vp9',
++        '--enable-decoder=pcm_s16be,pcm_s24be,pcm_mulaw,pcm_alaw,gif',
++        '--enable-demuxer=ogg,matroska,wav,flac,mp3,mov,gif',
++        '--enable-parser=opus,vorbis,flac,mpegaudio,vp9,gif',
+ 
+         # Setup include path so Chromium's libopus can be used.
+         '--extra-cflags=-I' +
+@@ -985,9 +985,12 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+ 
+     # Google Chrome specific configuration.
+     configure_flags['Chrome'].extend([
+-        '--enable-decoder=aac,h264',
++        '--enable-decoder=aac,h264,hevc',
+         '--enable-demuxer=aac',
+-        '--enable-parser=aac,h264',
++        '--enable-parser=aac,h264,hevc',
++        '--enable-muxer=mp4',
++        '--enable-encoder=aac',
++        '--enable-protocol=file',
+     ])
+ 
+     configure_flags['ChromeAndroid'].extend([
+diff --git a/media/ffmpeg/scripts/generate_gn.py b/media/ffmpeg/scripts/generate_gn.py
+index e3740fc371b5d9d78d2e98a3050a357486fc37ed..e56bde8e1d9fd6d7a79c06a658709d5b76a30547 100755
+--- a/media/ffmpeg/scripts/generate_gn.py
++++ b/media/ffmpeg/scripts/generate_gn.py
+@@ -114,7 +114,6 @@ def CleanObjectFiles(object_files):
+         'libavcodec/resample.o',
+         'libavcodec/resample2.o',
+         'libavcodec/x86/dnxhd_mmx.o',
+-        'libavformat/sdp.o',
+         'libavutil/adler32.o',
+         'libavutil/avsscanf.o',
+         'libavutil/audio_fifo.o',
+@@ -124,7 +123,6 @@ def CleanObjectFiles(object_files):
+         'libavutil/file.o',
+         'libavutil/hash.o',
+         'libavutil/hmac.o',
+-        'libavutil/lls.o',
+         'libavutil/murmur3.o',
+         'libavutil/rc4.o',
+         'libavutil/ripemd.o',

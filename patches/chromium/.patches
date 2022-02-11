@@ -316,3 +316,4 @@ skid-proof_video_decoding_memory_use.patch
 silence_nonfatal_dump_on_gpu_process_mojo_error.patch
 direct_video_sinks.patch
 enabling_audiovideotracks_feature_to_use_htmlmediaelements.patch
+add_discord_ffmpeg_config_options.patch

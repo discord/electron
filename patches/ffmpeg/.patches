@@ -1,2 +1,3 @@
 specify_that_we_re_not_building_electron.patch
 enable_gif_decoder_demuxer.patch
+regenerate_ffmpeg_gn.patch

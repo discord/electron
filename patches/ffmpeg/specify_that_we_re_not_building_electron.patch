@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mack Straight <mack@discordapp.com>
+Date: Tue, 1 Feb 2022 01:06:39 +0000
+Subject: specify that we're not building electron
+
+this way the android build works
+
+diff --git a/chromium/scripts/build_ffmpeg.py b/chromium/scripts/build_ffmpeg.py
+index fcdba5ab07ce4be365eaafbe814e3a25d85d13b6..06872eb0719de131bfc2f17ff134f6efad6b1883 100755
+--- a/chromium/scripts/build_ffmpeg.py
++++ b/chromium/scripts/build_ffmpeg.py
+@@ -193,6 +193,7 @@ class AndroidApiLevels:
+     # target OS.
+     with open(os.path.join(tmp_dir, 'args.gn'), 'w') as args_gn_file:
+       args_gn_file.write('target_os = "android"\n')
++      args_gn_file.write('is_electron_build = false\n')
+       print('Created ' + os.path.realpath(args_gn_file.name))
+ 
+     # Ask GN to generate build files.

@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 27 Feb 2023 12:56:15 -0800
+Subject: Enabling AudioVideoTracks feature to use HTMLMediaElements
+ audioTracks.
+
+enables audiotrack feature
+
+diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+index 1b2d764a90dacc407fb4aed964a1725e9a7bd035..7bb3df8adc631d10556c95358b7aaafc1c21c259 100644
+--- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
++++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+@@ -490,7 +490,7 @@
+     },
+     {
+       name: "AudioVideoTracks",
+-      status: "experimental",
++      status: "stable",
+     },
+     // Killswitch.
+     {

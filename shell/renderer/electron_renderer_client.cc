@@ -188,7 +188,26 @@ void ElectronRendererClient::WillReleaseScriptContext(
   DCHECK_EQ(microtask_queue->GetMicrotasksScopeDepth(), 0);
   microtask_queue->set_microtasks_policy(v8::MicrotasksPolicy::kExplicit);
 
+  // Hack workaround(markh): Mark all other environments to _not_ call into js
+  // to avoid problems with the shared isolate and uv_loop structures shared
+  // by this same environment we're trying to cleanup.
+  // During this environment cleanup the uv_loop is run, where possible tasks
+  // from other environments that share the loop might also try to run. Our
+  // call stack will have setup v8 to disable JS, so we need to signal to the
+  // other environments not to attempt to run any JS.
+  // The downside here is that any of those tasks that happen to be present in
+  // the uv_loop at the time will effectively no-op and get dropped.
+  // Note: We re-enable this flag after cleanup has completed below.
+  for (const std::shared_ptr<node::Environment>& otherEnv : environments_) {
+    otherEnv->set_can_call_into_js(false);
+  }
+
   environments_.erase(iter);
+
+  // Hack workaround(markh): Re-setup JS callbacks for other environments
+  for (const std::shared_ptr<node::Environment>& otherEnv : environments_) {
+    otherEnv->set_can_call_into_js(true);
+  }
 
   microtask_queue->set_microtasks_policy(old_policy);
 

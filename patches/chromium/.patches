@@ -147,3 +147,4 @@ skid-proof_video_decoding_memory_use.patch
 silence_nonfatal_dump_on_gpu_process_mojo_error.patch
 direct_video_sinks.patch
 enabling_audiovideotracks_feature_to_use_htmlmediaelements.patch
+use_32-bit_partitionalloc_sizes_for_64-bit_builds.patch

@@ -280,7 +280,7 @@ void DiscordVideoDecoderMediaThread::OnOutput(
     scoped_refptr<::media::VideoFrame> frame) {
   DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   ElectronPointer<IElectronVideoFrame> wrapped_frame =
-      new DiscordVideoFrame(frame);
+      new DiscordVideoFrame(frame, gpu_factories_);
 
   base::AutoLock auto_lock(lock_);
   if (video_sink_) {

@@ -1,7 +1,14 @@
 #include "electron/discord/public/discord_video_frame.h"
 
 #include <iostream>
+#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/platform/webrtc/convert_to_webrtc_video_frame_buffer.h"
+
+#include "content/renderer/renderer_blink_platform_impl.h"
+
+#include "base/no_destructor.h"
 #include "media/base/video_types.h"
+#include "media/base/video_util.h"
 
 namespace discord {
 namespace media {
@@ -40,7 +47,12 @@ ElectronVideoCodecProfile DiscordVideoFormat::GetProfile() {
 }
 
 DiscordVideoFrame::DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame)
-    : frame_(frame) {}
+    : DiscordVideoFrame(std::move(frame), nullptr) {}
+DiscordVideoFrame::DiscordVideoFrame(
+    scoped_refptr<::media::VideoFrame> frame,
+    ::media::GpuVideoAcceleratorFactories* gpu_factories)
+    : frame_(std::move(frame)),
+      gpu_factories_(gpu_factories) {}
 DiscordVideoFrame::~DiscordVideoFrame() {}
 
 uint32_t DiscordVideoFrame::GetWidth() {
@@ -55,8 +67,122 @@ uint32_t DiscordVideoFrame::GetTimestamp() {
   return static_cast<uint32_t>(frame_->timestamp().InMicroseconds());
 }
 
-ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
-  return ElectronVideoStatus::Failure;
+class RtcI420FrameWrapper
+    : public ElectronObject<IElectronVideoFrame, IElectronVideoFrameData> {
+ public:
+  explicit RtcI420FrameWrapper(
+      webrtc::scoped_refptr<webrtc::I420BufferInterface> frame)
+      : frame_(frame) {}
+  ~RtcI420FrameWrapper() override {}
+
+  // IElectronVideoFrame
+  uint32_t GetWidth() override { return frame_->width(); }
+  uint32_t GetHeight() override { return frame_->height(); }
+  IElectronVideoFrameData* ToI420() override { return this; }
+
+  // Uncalled
+  uint32_t GetTimestamp() override { return UINT32_MAX; }
+
+  // IElectronVideoFrameData
+  bool IsMappable() override { return true; }
+  bool HasSharedImage() override { return false; }
+  bool HasMappableGpuBuffer() override { return false; }
+  ElectronVideoPixelFormat GetFormat() override { return PIXEL_FORMAT_I420; }
+  ElectronVideoStorageType GetStorageType() override {
+    return STORAGE_OWNED_MEMORY;
+  }
+  int GetStride(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return frame_->StrideY();
+      case 1:
+        return frame_->StrideU();
+      case 2:
+        return frame_->StrideV();
+    }
+    return 0;
+  }
+  uint8_t const* GetData(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return frame_->DataY();
+      case 1:
+        return frame_->DataU();
+      case 2:
+        return frame_->DataV();
+    }
+    return nullptr;
+  }
+
+  // These are uncalled
+  int GetRowBytes(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return GetWidth();
+      case 1:
+      case 2:
+        return GetWidth() / 2;
+    }
+    return 0;
+  }
+  int GetRows(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return GetHeight();
+      case 1:
+      case 2:
+        return GetHeight() / 2;
+    }
+    return 0;
+  }
+
+ private:
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> frame_;
+};
+
+namespace {
+
+scoped_refptr<::blink::WebRtcVideoFrameAdapter::SharedResources>
+GetSharedResourcesSingleton(::media::GpuVideoAcceleratorFactories* gpu_factories) {
+  static base::NoDestructor<
+      scoped_refptr<::blink::WebRtcVideoFrameAdapter::SharedResources>>
+      instance(
+          ::blink::WebRtcVideoFrameAdapter::SharedResources::Create(
+              gpu_factories));
+  return *instance;
+}
+
+}  // namespace
+
+IElectronVideoFrameData* DiscordVideoFrame::ToI420() {
+  if (!frame_ || !gpu_factories_)
+    return nullptr;
+
+  if (!::blink::CanConvertToWebRtcVideoFrameBuffer(frame_.get()))
+    return nullptr;
+
+  auto shared = GetSharedResourcesSingleton(gpu_factories_);
+  if (!shared)
+    return nullptr;
+
+  // ConvertToWebRtcVideoFrameBuffer needs a CPU accessible frame,
+  // so try to get one
+  scoped_refptr<::media::VideoFrame> cpu_frame;
+  if (frame_->HasMappableSharedImage()) {
+    cpu_frame = shared->ConstructVideoFrameFromGpu(frame_);
+  } else if (frame_->HasSharedImage()) {
+    cpu_frame = shared->ConstructVideoFrameFromTexture(frame_);
+  } else {
+    cpu_frame = frame_;  // already CPU accessible
+  }
+  if (!cpu_frame)
+    return nullptr;
+
+  auto converted = ConvertToWebRtcVideoFrameBuffer(std::move(cpu_frame), shared);
+  if (!converted)
+    return nullptr;
+
+  return new RtcI420FrameWrapper(converted->ToI420());
 }
 
 ::media::VideoFrame* DiscordVideoFrame::GetMediaFrame() {

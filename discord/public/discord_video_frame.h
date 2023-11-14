@@ -4,6 +4,10 @@
 #include "electron/discord/public/electron_video_shared.h"
 #include "media/base/video_frame.h"
 
+namespace media {
+class GpuVideoAcceleratorFactories;
+}  // namespace media
+
 namespace discord {
 namespace media {
 namespace electron {
@@ -34,13 +38,16 @@ class DiscordVideoFrame : public ElectronObject<IElectronVideoFrameMedia,
                                                 IElectronVideoDebugLoggable> {
  public:
   explicit DiscordVideoFrame(scoped_refptr<::media::VideoFrame> frame);
+  DiscordVideoFrame(
+      scoped_refptr<::media::VideoFrame> frame,
+      ::media::GpuVideoAcceleratorFactories* gpu_factories);
   ~DiscordVideoFrame() override;
 
   // IElectronVideoFrame
   uint32_t GetWidth() override;
   uint32_t GetHeight() override;
   uint32_t GetTimestamp() override;
-  ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) override;
+  IElectronVideoFrameData* ToI420() override;
 
   // IElectronVideoFrameMedia
   ::media::VideoFrame* GetMediaFrame() override;
@@ -61,6 +68,8 @@ class DiscordVideoFrame : public ElectronObject<IElectronVideoFrameMedia,
 
  private:
   scoped_refptr<::media::VideoFrame> frame_;
+  DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
+      gpu_factories_{nullptr};
 };
 
 }  // namespace electron

@@ -1,6 +1,12 @@
 #include "electron/discord/public/discord_video_frame.h"
 
+#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/platform/webrtc/convert_to_webrtc_video_frame_buffer.h"
+
+#include "content/renderer/renderer_blink_platform_impl.h"
+
 #include "media/base/video_types.h"
+#include "media/base/video_util.h"
 
 namespace discord {
 namespace media {
@@ -54,8 +60,96 @@ uint32_t DiscordVideoFrame::GetTimestamp() {
   return static_cast<uint32_t>(frame_->timestamp().InMicroseconds());
 }
 
-ElectronVideoStatus DiscordVideoFrame::ToI420(IElectronBuffer* outputBuffer) {
-  return ElectronVideoStatus::Failure;
+class RtcI420FrameWrapper
+    : public ElectronObject<IElectronVideoFrame, IElectronVideoFrameData> {
+ public:
+  explicit RtcI420FrameWrapper(
+      rtc::scoped_refptr<webrtc::I420BufferInterface> frame)
+      : frame_(frame) {}
+  ~RtcI420FrameWrapper() override {}
+
+  // IElectronVideoFrame
+  uint32_t GetWidth() override { return frame_->width(); }
+  uint32_t GetHeight() override { return frame_->height(); }
+  IElectronVideoFrameData* ToI420() override { return this; }
+
+  // Uncalled
+  uint32_t GetTimestamp() override { return UINT32_MAX; }
+
+  // IElectronVideoFrameData
+  bool IsMappable() override { return true; }
+  bool HasTextures() override { return false; }
+  bool HasMappableGpuBuffer() override { return false; }
+  ElectronVideoPixelFormat GetFormat() override { return PIXEL_FORMAT_I420; }
+  ElectronVideoStorageType GetStorageType() override {
+    return STORAGE_OWNED_MEMORY;
+  }
+  int GetStride(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return frame_->StrideY();
+      case 1:
+        return frame_->StrideU();
+      case 2:
+        return frame_->StrideV();
+    }
+    return 0;
+  }
+  uint8_t const* GetData(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return frame_->DataY();
+      case 1:
+        return frame_->DataU();
+      case 2:
+        return frame_->DataV();
+    }
+    return nullptr;
+  }
+
+  // These are uncalled
+  int GetRowBytes(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return GetWidth();
+      case 1:
+      case 2:
+        return GetWidth() / 2;
+    }
+    return 0;
+  }
+  int GetRows(size_t plane) override {
+    switch (plane) {
+      case 0:
+        return GetHeight();
+      case 1:
+      case 2:
+        return GetHeight() / 2;
+    }
+    return 0;
+  }
+
+ private:
+  rtc::scoped_refptr<webrtc::I420BufferInterface> frame_;
+};
+
+IElectronVideoFrameData* DiscordVideoFrame::ToI420() {
+  if (!frame_)
+    return nullptr;
+
+  if (!::blink::CanConvertToWebRtcVideoFrameBuffer(frame_.get()))
+    return nullptr;
+
+  auto shared =
+      base::MakeRefCounted<::blink::WebRtcVideoFrameAdapter::SharedResources>(
+          ::blink::Platform::Current()->GetGpuFactories());
+
+  auto ret = ConvertToWebRtcVideoFrameBuffer(frame_, shared);
+
+  if (!ret)
+    return nullptr;
+
+  return new RtcI420FrameWrapper(ret->ToI420());
 }
 
 ::media::VideoFrame* DiscordVideoFrame::GetMediaFrame() {

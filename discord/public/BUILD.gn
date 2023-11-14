@@ -10,4 +10,10 @@ component("public") {
     "//base",
     "//media",
   ]
+
+  include_dirs = [
+    "//v8/include",
+    "//third_party/blink",
+    "//third_party/webrtc",
+  ]
 }

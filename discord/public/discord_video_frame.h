@@ -40,7 +40,7 @@ class DiscordVideoFrame : public ElectronObject<IElectronVideoFrameMedia,
   uint32_t GetWidth() override;
   uint32_t GetHeight() override;
   uint32_t GetTimestamp() override;
-  ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) override;
+  IElectronVideoFrameData* ToI420() override;
 
   // IElectronVideoFrameMedia
   ::media::VideoFrame* GetMediaFrame() override;

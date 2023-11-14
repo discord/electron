@@ -18,6 +18,10 @@
 #define ELECTRON_VIDEO_EXPORT
 #endif
 
+namespace webrtc {
+  class I420BufferInterface;
+}
+
 namespace discord {
 namespace media {
 namespace electron {
@@ -349,13 +353,16 @@ class IElectronVideoFormat : public IElectronUnknown {
   virtual ElectronVideoCodecProfile GetProfile() = 0;
 };
 
+class IElectronVideoFrameData;
+
 class IElectronVideoFrame : public IElectronUnknown {
  public:
   static constexpr char IID[] = "IElectronVideoFrame";
   virtual uint32_t GetWidth() = 0;
   virtual uint32_t GetHeight() = 0;
   virtual uint32_t GetTimestamp() = 0;
-  virtual ElectronVideoStatus ToI420(IElectronBuffer* outputBuffer) = 0;
+
+  virtual IElectronVideoFrameData* ToI420() = 0;
 };
 
 class IElectronVideoFrameData : public IElectronUnknown {

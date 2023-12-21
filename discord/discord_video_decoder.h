@@ -33,7 +33,8 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
                                    uint32_t timestamp) override;
 
  private:
-  DiscordVideoDecoderMediaThread* media_thread_state_{};
+  DISCORD_RAW_PTR_EXCLUSION DiscordVideoDecoderMediaThread*
+      media_thread_state_{};
   bool started_initialize_{false};
   bool initialized_{false};
 };

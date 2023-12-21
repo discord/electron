@@ -75,7 +75,8 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
 }
 
 struct GpuFactoriesAndTaskRunner {
-  ::media::GpuVideoAcceleratorFactories* gpu_factories{nullptr};
+  DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
+      gpu_factories{nullptr};
   scoped_refptr<base::SequencedTaskRunner> media_task_runner{nullptr};
 };
 
@@ -123,8 +124,9 @@ class DiscordVideoDecoderMediaThread {
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
   ::media::VideoDecoderConfig config_;
-  void* user_data_;
-  ::media::GpuVideoAcceleratorFactories* gpu_factories_{};
+  DISCORD_RAW_PTR_EXCLUSION void* user_data_;
+  DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
+      gpu_factories_{};
   std::unique_ptr<::media::MediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
@@ -150,8 +152,7 @@ DiscordVideoDecoderMediaThread::DiscordVideoDecoderMediaThread(
       user_data_(user_data),
       gpu_factories_(gpu_factories),
       media_task_runner_(std::move(media_task_runner)),
-      video_sink_(video_sink) {
-}
+      video_sink_(video_sink) {}
 
 void DiscordVideoDecoderMediaThread::DeleteSoon() {
   {

@@ -73,7 +73,7 @@ class MediaStreamDiscordVideoSource::VideoSourceDelegate
   // |frame_callback_| is accessed on the IO thread.
   VideoCaptureDeliverFrameCB frame_callback_;
 
-  media::GpuVideoAcceleratorFactories* gpu_factories_;
+  DISCORD_RAW_PTR_EXCLUSION media::GpuVideoAcceleratorFactories* gpu_factories_;
   std::unique_ptr<gpu::GpuMemoryBufferSupport> gpu_memory_buffer_support_;
 };
 

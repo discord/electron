@@ -81,8 +81,9 @@ class DiscordVideoDecoderMediaThread {
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
   ElectronPointer<IElectronVideoFormat> format_;
-  void* user_data_;
-  ::media::GpuVideoAcceleratorFactories* gpu_factories_{};
+  DISCORD_RAW_PTR_EXCLUSION void* user_data_;
+  DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
+      gpu_factories_{};
   std::unique_ptr<::media::MediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SequencedTaskRunner> media_task_runner_;

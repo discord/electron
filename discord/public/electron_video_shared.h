@@ -18,8 +18,13 @@
 #define ELECTRON_VIDEO_EXPORT
 #endif
 
+// Support for Electron debug builds that enable checks for rawptr.
+// Use our own definition to avoid conflicts with Chromium's PA
+// RAW_PTR_EXCLUSION macro
+#define DISCORD_RAW_PTR_EXCLUSION __attribute__((annotate("raw_ptr_exclusion")))
+
 namespace webrtc {
-  class I420BufferInterface;
+class I420BufferInterface;
 }
 
 namespace discord {
@@ -163,7 +168,7 @@ class ElectronPointer final {
     }
   }
 
-  T* electronObject_;
+  DISCORD_RAW_PTR_EXCLUSION T* electronObject_;
 };
 
 template <typename T>
@@ -438,9 +443,9 @@ struct DiscordFrame {
   union {
     DiscordYUVFrame yuv;
 #if defined(_WIN32)
-    void* texture_handle;
+    DISCORD_RAW_PTR_EXCLUSION void* texture_handle;
 #endif
-    IElectronVideoFrame* electron;
+    DISCORD_RAW_PTR_EXCLUSION IElectronVideoFrame* electron;
   } frame;
   int32_t width;
   int32_t height;

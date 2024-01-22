@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordap.com>
+Date: Sun, 21 Jan 2024 17:12:34 -0800
+Subject: Revert "[task] Stop using NSRunLoop in renderer process"
+
+This reverts commit 1fb1e52dd81114e46ab5db5362492f2f35db7d6b.
+
+discord_utils keyboard input requires the macos CFRunLoop message pump to still be running in the renderer process.
+
+diff --git a/content/renderer/renderer_main.cc b/content/renderer/renderer_main.cc
+index 1613e02e24fab8ab8f18481fb98bc9f6a7d68d83..d252950272bdd8a8171a67d1d9c4711a751f51b0 100644
+--- a/content/renderer/renderer_main.cc
++++ b/content/renderer/renderer_main.cc
+@@ -107,7 +107,12 @@ void HandleRendererErrorTestParameters(const base::CommandLine& command_line) {
+ 
+ std::unique_ptr<base::MessagePump> CreateMainThreadMessagePump() {
+   std::unique_ptr<base::MessagePump> message_pump;
+-#if BUILDFLAG(IS_FUCHSIA)
++#if BUILDFLAG(IS_MAC)
++  // As long as scrollbars on Mac are painted with Cocoa, the message pump
++  // needs to be backed by a Foundation-level loop to process NSTimers. See
++  // http://crbug.com/306348#c24 for details.
++  message_pump = base::MessagePump::Create(base::MessagePumpType::NS_RUNLOOP);
++#elif BUILDFLAG(IS_FUCHSIA)
+   // Allow FIDL APIs on renderer main thread.
+   message_pump = base::MessagePump::Create(base::MessagePumpType::IO);
+ #else

@@ -149,3 +149,4 @@ direct_video_sinks.patch
 enabling_audiovideotracks_feature_to_use_htmlmediaelements.patch
 use_32-bit_partitionalloc_sizes_for_64-bit_builds.patch
 add_discord_ffmpeg_config_options.patch
+revert_task_stop_using_nsrunloop_in_renderer_process.patch

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 1 Feb 2024 12:06:18 -0800
+Subject: Disable NvidiaVpSuperResolution feature by default
+
+Disabling this until it can be fully tested in the discord app.
+
+diff --git a/ui/gl/gl_switches.cc b/ui/gl/gl_switches.cc
+index 21a2b69ccbe1579d0f5c66856bc7d9246b0a792d..39b260016348b679348a9662faf94873046343be 100644
+--- a/ui/gl/gl_switches.cc
++++ b/ui/gl/gl_switches.cc
+@@ -293,6 +293,9 @@ BASE_FEATURE(kEGLDualGPURendering,
+ // Allow overlay swapchain to use Intel video processor for super resolution.
+ BASE_FEATURE(kIntelVpSuperResolution, base::FEATURE_DISABLED_BY_DEFAULT);
+ 
++// Allow overlay swapchain to use NVIDIA video processor for super resolution.
++BASE_FEATURE(kNvidiaVpSuperResolution, base::FEATURE_DISABLED_BY_DEFAULT);
++
+ // Default to using ANGLE's Metal backend.
+ BASE_FEATURE(kDefaultANGLEMetal, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+diff --git a/ui/gl/gl_switches.h b/ui/gl/gl_switches.h
+index 54e41a46c9487988fc7fd6992347d487d9661190..5fee7cc576fa7ee55ec13c475cf707571be8f597 100644
+--- a/ui/gl/gl_switches.h
++++ b/ui/gl/gl_switches.h
+@@ -127,6 +127,7 @@ GL_EXPORT BASE_DECLARE_FEATURE(kDirectCompositionUnlimitedOverlays);
+ GL_EXPORT BASE_DECLARE_FEATURE(kDesktopPlaneRemovalForMFFullScreenLetterbox);
+ GL_EXPORT BASE_DECLARE_FEATURE(kEGLDualGPURendering);
+ GL_EXPORT BASE_DECLARE_FEATURE(kIntelVpSuperResolution);
++GL_EXPORT BASE_DECLARE_FEATURE(kNvidiaVpSuperResolution);
+ GL_EXPORT BASE_DECLARE_FEATURE(kDefaultANGLEMetal);
+ GL_EXPORT BASE_DECLARE_FEATURE(kDefaultANGLEVulkan);
+ GL_EXPORT BASE_DECLARE_FEATURE(kTrackCurrentShaders);
+diff --git a/ui/gl/swap_chain_presenter.cc b/ui/gl/swap_chain_presenter.cc
+index 021c6204fa1d70a987ba2461559e30add7221db2..36e521828463192493a318be27d80b4e1112ed0c 100644
+--- a/ui/gl/swap_chain_presenter.cc
++++ b/ui/gl/swap_chain_presenter.cc
+@@ -242,7 +242,8 @@ HRESULT ToggleVpSuperResolution(UINT gpu_vendor_id,
+     return ToggleIntelVpSuperResolution(video_context, video_processor, enable);
+   }
+ 
+-  if (gpu_vendor_id == 0x10de) {
++  if (gpu_vendor_id == 0x10de &&
++      base::FeatureList::IsEnabled(features::kNvidiaVpSuperResolution)) {
+     return ToggleNvidiaVpSuperResolution(video_context, video_processor,
+                                          enable);
+   }

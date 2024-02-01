@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Thomas Finch <thomas.finch@discordapp.com>
+Date: Thu, 1 Feb 2024 09:33:02 -0800
+Subject: fix: page visibility with background throttling disabled
+
+Allow page visibility API to work while background throttling is disabled
+
+diff --git a/content/browser/renderer_host/render_widget_host_impl.cc b/content/browser/renderer_host/render_widget_host_impl.cc
+index 372c81bdfcf4d70dbd5b131a1b02af6b5c878cbe..8342ed569761d7652f635b1e9e3e3eadb38a3aa4 100644
+--- a/content/browser/renderer_host/render_widget_host_impl.cc
++++ b/content/browser/renderer_host/render_widget_host_impl.cc
+@@ -833,10 +833,6 @@ void RenderWidgetHostImpl::WasHidden() {
+     return;
+   }
+ 
+-  if (disable_hidden_) {
+-    return;
+-  }
+-
+   // Cancel pending pointer lock requests, unless there's an open user prompt.
+   // Prompts should remain open and functional across tab switches.
+   if (!delegate_ || !delegate_->IsWaitingForPointerLockPrompt(this)) {

@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Fri, 29 Mar 2024 12:23:03 -0700
+Subject: fix: nvidia HDR crash on Windows 32-bit
+
+Disable nvidia HDR on Windows 32-bit, causes GPU process to crash.
+
+diff --git a/ui/gl/swap_chain_presenter.cc b/ui/gl/swap_chain_presenter.cc
+index d15792c8e0d9fac1dd5dc2a671ff8114e09a1bcf..2e52e0dc8ef88a961bf67f3b74ff45e0f93f09d8 100644
+--- a/ui/gl/swap_chain_presenter.cc
++++ b/ui/gl/swap_chain_presenter.cc
+@@ -7,6 +7,7 @@
+ #include <d3d11_1.h>
+ #include <d3d11_4.h>
+ 
++#include "build/build_config.h"
+ #include "base/debug/alias.h"
+ #include "base/debug/crash_logging.h"
+ #include "base/debug/dump_without_crashing.h"
+@@ -359,10 +360,13 @@ HRESULT ToggleVpAutoHDR(UINT gpu_vendor_id,
+ }
+ 
+ bool IsVpAutoHDREnabled(UINT gpu_vendor_id) {
++  // NVidia HDR is broken on 32-bit builds
++#if !defined(ARCH_CPU_X86)
+   if (gpu_vendor_id == 0x10de &&
+       base::FeatureList::IsEnabled(features::kNvidiaVpTrueHDR)) {
+     return true;
+   }
++#endif
+ 
+   return false;
+ }

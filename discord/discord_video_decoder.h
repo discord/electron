@@ -30,7 +30,9 @@ class DiscordVideoDecoder : public ElectronObject<IElectronVideoDecoder> {
                                  ElectronVideoSink* videoSink,
                                  void* userData) override;
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
-                                   uint32_t timestamp) override;
+                                   uint32_t timestamp,
+                                   ElectronVideoDecodeErrorCB* errorCB,
+                                   void* userData) override;
 
  private:
   DISCORD_RAW_PTR_EXCLUSION DiscordVideoDecoderMediaThread*

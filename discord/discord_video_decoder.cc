@@ -67,7 +67,10 @@ class DiscordVideoDecoderMediaThread {
       const DiscordVideoDecoderMediaThread&) = delete;
 
   ElectronVideoStatus Initialize();
-  ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, uint32_t timestamp);
+  ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
+                                   uint32_t timestamp,
+                                   ElectronVideoDecodeErrorCB* errorCB,
+                                   void* userData);
   void DeleteSoon();
 
  private:
@@ -91,7 +94,7 @@ class DiscordVideoDecoderMediaThread {
 
   // shared state
   base::Lock lock_;
-  bool has_error_{false};
+  std::optional<std::string> first_error_{std::nullopt};
   WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_;
   ElectronVideoSink* video_sink_;
   base::WeakPtr<DiscordVideoDecoderMediaThread> weak_this_;
@@ -270,7 +273,9 @@ void DiscordVideoDecoderMediaThread::OnDecodeDone(
       status.code() != ::media::DecoderStatus::Codes::kAborted) {
     base::AutoLock auto_lock(lock_);
 
-    has_error_ = true;
+    if (!first_error_.has_value()) {
+      first_error_ = {MediaSerialize(status).DebugString()};
+    }
     pending_buffers_.clear();
     return;
   }
@@ -292,7 +297,9 @@ void DiscordVideoDecoderMediaThread::OnOutput(
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
     IElectronBuffer* buffer,
-    uint32_t timestamp) {
+    uint32_t timestamp,
+    ElectronVideoDecodeErrorCB* errorCB,
+    void* userData) {
   scoped_refptr<::media::DecoderBuffer> decoder_buffer =
       ::media::DecoderBuffer::CopyFrom(
           base::span(buffer->GetBytes(), buffer->GetLength()));
@@ -301,7 +308,10 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
   {
     base::AutoLock auto_lock(lock_);
 
-    if (has_error_) {
+    if (first_error_.has_value()) {
+      if (errorCB != nullptr) {
+        errorCB(first_error_->data(), first_error_->size(), userData);
+      }
       return ElectronVideoStatus::Failure;
     }
 
@@ -348,13 +358,17 @@ ElectronVideoStatus DiscordVideoDecoder::Initialize(
   return ElectronVideoStatus::Success;
 }
 
-ElectronVideoStatus DiscordVideoDecoder::SubmitBuffer(IElectronBuffer* buffer,
-                                                      uint32_t timestamp) {
+ElectronVideoStatus DiscordVideoDecoder::SubmitBuffer(
+    IElectronBuffer* buffer,
+    uint32_t timestamp,
+    ElectronVideoDecodeErrorCB* errorCB,
+    void* userData) {
   if (!initialized_) {
     return ElectronVideoStatus::InvalidState;
   }
 
-  return media_thread_state_->SubmitBuffer(buffer, timestamp);
+  return media_thread_state_->SubmitBuffer(buffer, timestamp, errorCB,
+                                           userData);
 }
 
 }  // namespace electron

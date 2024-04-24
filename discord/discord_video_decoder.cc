@@ -4,14 +4,17 @@
 
 #include "electron/discord/discord_video_decoder.h"
 
+#include "base/containers/circular_deque.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/values.h"
 #include "content/renderer/render_thread_impl.h"
 #include "media/base/media_log.h"
+#include "media/base/media_serializers.h"
 #include "media/base/media_util.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_types.h"
@@ -27,6 +30,12 @@ namespace media {
 namespace electron {
 
 namespace {
+using ::blink::CrossThreadBindOnce;
+using ::blink::CrossThreadBindRepeating;
+using ::blink::CrossThreadOnceFunction;
+using ::blink::CrossThreadUnretained;
+using ::blink::Deque;
+
 using InitCB = CrossThreadOnceFunction<void(ElectronVideoStatus)>;
 
 // Arbitrary, matches RTCVideoDecoderAdapter.
@@ -67,8 +76,7 @@ class WaitableSharedObject
   std::optional<T> value_;
 };
 
-void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
-                          ::media::ProvideOverlayInfoCB overlay_info_cb) {
+void OnRequestOverlayInfo(::media::ProvideOverlayInfoCB overlay_info_cb) {
   // Android overlays are not supported.
   if (overlay_info_cb)
     std::move(overlay_info_cb).Run(::media::OverlayInfo());
@@ -95,6 +103,52 @@ void GetGpuFactoriesOnRenderThread(
           .media_task_runner = gpu_factories->GetTaskRunner(),
       });
 }
+
+class DiscordMediaLog : public ::media::MediaLog {
+ public:
+  using MediaLogRecord = ::media::MediaLogRecord;
+  DiscordMediaLog() { events_.reserve(MAX_EVENTS); }
+  ~DiscordMediaLog() override { InvalidateLog(); }
+  base::ListValue TakeAllEvents() {
+    base::AutoLock auto_lock(lock_);
+    auto list = base::ListValue::with_capacity(events_.size());
+    for (auto& v : events_) {
+      list.Append(std::move(v));
+    }
+    events_.clear();
+    return list;
+  }
+
+ protected:
+  void AddLogRecordLocked(std::unique_ptr<MediaLogRecord> event) override {
+    base::AutoLock auto_lock(lock_);
+    if (events_.size() >= MAX_EVENTS) {
+      events_.pop_front();
+    }
+    events_.push_back(std::move(event->params));
+  }
+  std::string GetErrorMessageLocked() override { return {}; }
+
+ private:
+  static constexpr size_t MAX_EVENTS = 20;
+  // AddRecordLocked guarentees that a lock is held when add record is called,
+  // but that lock is not accessible from the classes own members.
+  base::Lock lock_;
+  base::circular_deque<base::DictValue> events_ GUARDED_BY(lock_);
+};
+
+std::string StatusWithLogToJSON(const ::media::DecoderStatus& status,
+                                DiscordMediaLog& log) {
+  auto events = log.TakeAllEvents();
+  auto err = ::media::internal::MediaSerializerDebug<
+      ::media::DecoderStatus>::Serialize(status);
+  base::DictValue dict;
+  dict.Set("error", std::move(err));
+  dict.Set("log", std::move(events));
+  std::string str;
+  base::JSONWriter::Write(dict, &str);
+  return str;
+}
 }  // namespace
 
 class DiscordVideoDecoderMediaThread {
@@ -113,12 +167,13 @@ class DiscordVideoDecoderMediaThread {
 
   ElectronVideoStatus Initialize();
   ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer, uint32_t timestamp);
+  void GetErrorInfo(ElectronVideoDecodeErrorCB* errorCB, void* userData);
   void DeleteSoon();
 
  private:
   void InitializeOnMediaThread(InitCB init_cb);
-  static void OnInitializeDone(base::OnceCallback<void(ElectronVideoStatus)> cb,
-                               ::media::DecoderStatus status);
+  void OnInitializeDone(base::OnceCallback<void(ElectronVideoStatus)> cb,
+                        ::media::DecoderStatus status);
   void DecodeOnMediaThread();
   void OnDecodeDone(::media::DecoderStatus status);
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
@@ -127,15 +182,15 @@ class DiscordVideoDecoderMediaThread {
   DISCORD_RAW_PTR_EXCLUSION void* user_data_;
   DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
       gpu_factories_{};
-  std::unique_ptr<::media::MediaLog> media_log_;
+  std::unique_ptr<DiscordMediaLog> media_log_;
   std::unique_ptr<::media::VideoDecoder> video_decoder_;
   scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
   int32_t outstanding_decode_requests_{0};
 
   // shared state
   base::Lock lock_;
-  bool has_error_ GUARDED_BY(lock_){false};
-  WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_
+  std::optional<std::string> first_error_ GUARDED_BY(lock_){std::nullopt};
+  blink::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_
       GUARDED_BY(lock_);
   ElectronVideoSink* video_sink_ GUARDED_BY(lock_);
   base::WeakPtr<DiscordVideoDecoderMediaThread> weak_this_;
@@ -202,9 +257,9 @@ void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(InitCB init_cb) {
   }
 
   weak_this_ = weak_this_factory_.GetWeakPtr();
-  media_log_ = std::make_unique<::media::NullMediaLog>();
+  media_log_ = std::make_unique<DiscordMediaLog>();
   video_decoder_ = gpu_factories_->CreateVideoDecoder(
-      media_log_.get(), WTF::BindRepeating(&OnRequestOverlayInfo));
+      media_log_.get(), blink::BindRepeating(&OnRequestOverlayInfo));
 
   if (!video_decoder_) {
     blink::PostCrossThreadTask(
@@ -222,7 +277,7 @@ void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(InitCB init_cb) {
   video_decoder_->Initialize(
       config_, low_delay, cdm_context,
       base::BindOnce(&DiscordVideoDecoderMediaThread::OnInitializeDone,
-                     ConvertToBaseOnceCallback(std::move(init_cb))),
+                     weak_this_, ConvertToBaseOnceCallback(std::move(init_cb))),
       output_cb, base::DoNothing());
 }
 
@@ -230,6 +285,13 @@ void DiscordVideoDecoderMediaThread::OnInitializeDone(
     base::OnceCallback<void(ElectronVideoStatus)> cb,
     ::media::DecoderStatus status) {
   // TODO(eiz): translate this status into something more meaningful?
+  if (!status.is_ok()) {
+    base::AutoLock auto_lock(lock_);
+
+    if (!first_error_.has_value()) {
+      first_error_ = {StatusWithLogToJSON(status, *media_log_)};
+    }
+  }
   std::move(cb).Run(status.is_ok() ? ElectronVideoStatus::Success
                                    : ElectronVideoStatus::Failure);
 }
@@ -269,7 +331,9 @@ void DiscordVideoDecoderMediaThread::OnDecodeDone(
       status.code() != ::media::DecoderStatus::Codes::kAborted) {
     base::AutoLock auto_lock(lock_);
 
-    has_error_ = true;
+    if (!first_error_.has_value()) {
+      first_error_ = {StatusWithLogToJSON(status, *media_log_)};
+    }
     pending_buffers_.clear();
     return;
   }
@@ -300,7 +364,7 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
   {
     base::AutoLock auto_lock(lock_);
 
-    if (has_error_) {
+    if (first_error_.has_value()) {
       return ElectronVideoStatus::Failure;
     }
 
@@ -312,6 +376,16 @@ ElectronVideoStatus DiscordVideoDecoderMediaThread::SubmitBuffer(
       CrossThreadBindOnce(&DiscordVideoDecoderMediaThread::DecodeOnMediaThread,
                           weak_this_));
   return ElectronVideoStatus::Success;
+}
+
+void DiscordVideoDecoderMediaThread::GetErrorInfo(
+    ElectronVideoDecodeErrorCB* errorCB,
+    void* userData) {
+  base::AutoLock auto_lock(lock_);
+
+  if (first_error_.has_value()) {
+    errorCB(first_error_->data(), first_error_->size(), userData);
+  }
 }
 
 DiscordVideoDecoder::DiscordVideoDecoder() {
@@ -393,6 +467,13 @@ ElectronVideoStatus DiscordVideoDecoder::SubmitBuffer(IElectronBuffer* buffer,
   }
 
   return media_thread_state_->SubmitBuffer(buffer, timestamp);
+}
+
+void DiscordVideoDecoder::GetErrorInfo(ElectronVideoDecodeErrorCB* errorCB,
+                                       void* userData) {
+  if (errorCB && media_thread_state_) {
+    media_thread_state_->GetErrorInfo(errorCB, userData);
+  }
 }
 
 }  // namespace electron

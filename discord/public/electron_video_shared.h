@@ -394,6 +394,11 @@ typedef void ElectronVideoSink(IElectronVideoFrame* decodedFrame,
                                void* userData);
 typedef ElectronVideoSink ElectronVideoDecodedCB;
 
+#define ELECTRON_VIDEO_DECODER_ERROR_INFO_OUT_V2
+typedef void ElectronVideoDecodeErrorCB(const char* msg,
+                                        size_t size,
+                                        void* userData);
+
 class IElectronVideoDecoder : public IElectronUnknown {
  public:
   static constexpr char IID[] = "IElectronVideoDecoder";
@@ -402,6 +407,8 @@ class IElectronVideoDecoder : public IElectronUnknown {
                                          void* userData) = 0;
   virtual ElectronVideoStatus SubmitBuffer(IElectronBuffer* buffer,
                                            uint32_t timestamp) = 0;
+  virtual void GetErrorInfo(ElectronVideoDecodeErrorCB* errorCB,
+                            void* userData) = 0;
 };
 
 class IElectronVideoSinkAttachment : public IElectronUnknown {

@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 13 May 2024 15:39:05 -0700
+Subject: fix: Disable PostQuantumKyber
+
+Disabling due to network infra issues and TLS 1.3
+
+diff --git a/net/base/features.cc b/net/base/features.cc
+index fb4f185994fc620feca637765e9827023d9d24f5..e94ecb2034f9f7588b89ef9daab3de6416d178c8 100644
+--- a/net/base/features.cc
++++ b/net/base/features.cc
+@@ -154,7 +154,7 @@ BASE_FEATURE(kPartitionConnectionsByNetworkIsolationKey,
+ 
+ BASE_FEATURE(kPostQuantumKyber,
+              "PostQuantumKyber",
+-             base::FEATURE_ENABLED_BY_DEFAULT);
++             base::FEATURE_DISABLED_BY_DEFAULT);
+ 
+ BASE_FEATURE(kUseMLKEM, "UseMLKEM", base::FEATURE_ENABLED_BY_DEFAULT);
+ 

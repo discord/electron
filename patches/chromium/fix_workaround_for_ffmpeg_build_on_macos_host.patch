@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordap.com>
+Date: Thu, 16 May 2024 22:29:34 -0700
+Subject: fix: workaround for ffmpeg build on macos host
+
+
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index 5211b72295f3d9a0c883140e7762e279a2be63db..3dba1461bb36705f5d71ac1a810d8ce59462dab0 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -945,6 +945,7 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+             configure_flags['Common'].extend([
+                 '--arch=x86_64',
+                 '--extra-cflags=-m64',
++                '--extra-cflags=--target=x86_64-apple-macos14',
+                 '--extra-ldflags=-arch x86_64',
+             ])
+         elif target_arch == 'arm64':

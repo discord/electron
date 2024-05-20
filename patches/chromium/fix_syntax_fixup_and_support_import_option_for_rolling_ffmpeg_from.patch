@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 20 May 2024 11:15:34 -0700
+Subject: fix: syntax fixup and support import option for rolling ffmpeg from
+ discord scripts
+
+diff --git a/media/ffmpeg/scripts/robosushi.py b/media/ffmpeg/scripts/robosushi.py
+index 86b266fe2bab53a7233973680378305c503b8695..ba17fccd2386bb43e270f53a3ef24edfa3e7c68e 100755
+--- a/media/ffmpeg/scripts/robosushi.py
++++ b/media/ffmpeg/scripts/robosushi.py
+@@ -248,6 +248,9 @@ def main(argv):
+         '--build-gn',
+         action='store_true',
+         help='Unconditionally build all the configs and import them.')
++    parser.add_option('--import-only',
++                      action='store_true',
++                      help='Import ffmpeg configuration')
+     parser.add_option('--patches',
+                       action='store_true',
+                       help='Update patches file only')
+@@ -291,6 +294,8 @@ def main(argv):
+     if options.build_gn:
+         # Unconditionally build all the configs and import them.
+         robo_build.BuildAndImportAllFFmpegConfigs(robo_configuration)
++    if options.import_only:
++        robo_build.ImportFFmpegConfigsIntoChromium(robo_configuration)
+     if options.patches:
+         # To be run after committing a local change to fix the tests.
+         if not robo_branch.IsWorkingDirectoryClean():

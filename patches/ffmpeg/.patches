@@ -1,2 +1,3 @@
 link_with_loader_path.patch
 add_discord_ffmpeg_config_options.patch
+revert_revert_bsf_use_standard_include_paths.patch

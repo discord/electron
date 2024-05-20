@@ -1,0 +1,859 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 20 May 2024 11:18:18 -0700
+Subject: Revert "Revert "bsf: use standard include paths""
+
+This reverts commit 0e4dfa470958a6bc6c6a673491dda5adf758c6c2.
+
+diff --git a/libavcodec/bsf/Makefile b/libavcodec/bsf/Makefile
+index fb70ad0c21c60f0cd377218449b4e39a0981f9e4..e506ac61fd1c05b6c6296a5c3c62ef2b0d4d6f01 100644
+--- a/libavcodec/bsf/Makefile
++++ b/libavcodec/bsf/Makefile
+@@ -45,5 +45,3 @@ OBJS-$(CONFIG_VP9_SUPERFRAME_BSF)         += bsf/vp9_superframe.o
+ OBJS-$(CONFIG_VP9_SUPERFRAME_SPLIT_BSF)   += bsf/vp9_superframe_split.o
+ OBJS-$(CONFIG_VVC_METADATA_BSF)           += bsf/h266_metadata.o
+ OBJS-$(CONFIG_VVC_MP4TOANNEXB_BSF)        += bsf/vvc_mp4toannexb.o
+-
+-libavcodec/bsf/%.o: CPPFLAGS += -I$(SRC_PATH)/libavcodec/
+diff --git a/libavcodec/bsf/aac_adtstoasc.c b/libavcodec/bsf/aac_adtstoasc.c
+index dd5e8b2a31f13a769d89a9c715a2a0e38a3c2808..08373fc3b22ee4ce891a1938c2a41a0b9d2c1eed 100644
+--- a/libavcodec/bsf/aac_adtstoasc.c
++++ b/libavcodec/bsf/aac_adtstoasc.c
+@@ -19,14 +19,14 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "adts_header.h"
+-#include "adts_parser.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "put_bits.h"
+-#include "get_bits.h"
+-#include "mpeg4audio.h"
+-#include "mpeg4audio_copy_pce.h"
++#include "libavcodec/adts_header.h"
++#include "libavcodec/adts_parser.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/put_bits.h"
++#include "libavcodec/get_bits.h"
++#include "libavcodec/mpeg4audio.h"
++#include "libavcodec/mpeg4audio_copy_pce.h"
+ 
+ typedef struct AACBSFContext {
+     int first_frame_done;
+diff --git a/libavcodec/bsf/av1_frame_merge.c b/libavcodec/bsf/av1_frame_merge.c
+index 4c54f2167e183dc078c5b869e3109d709c2d40b0..12d53fba7caf199bab73b264b37f492f7c41d9a2 100644
+--- a/libavcodec/bsf/av1_frame_merge.c
++++ b/libavcodec/bsf/av1_frame_merge.c
+@@ -18,10 +18,10 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_av1.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_av1.h"
+ 
+ typedef struct AV1FMergeContext {
+     CodedBitstreamContext *input;
+diff --git a/libavcodec/bsf/av1_frame_split.c b/libavcodec/bsf/av1_frame_split.c
+index 5f6a40316cb58a9c3721a662565eb9330d57eebb..953aa83fc2d6584114416459d4472ffc16375c22 100644
+--- a/libavcodec/bsf/av1_frame_split.c
++++ b/libavcodec/bsf/av1_frame_split.c
+@@ -32,10 +32,10 @@
+ 
+ #include "libavutil/avassert.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_av1.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_av1.h"
+ 
+ typedef struct AV1FSplitContext {
+     AVPacket *buffer_pkt;
+diff --git a/libavcodec/bsf/av1_metadata.c b/libavcodec/bsf/av1_metadata.c
+index cb51d2eee663f2ff030ee52fc73b2d07229c503b..34864d4d58b0e0dba4ec4c4985a8b8f36540d52d 100644
+--- a/libavcodec/bsf/av1_metadata.c
++++ b/libavcodec/bsf/av1_metadata.c
+@@ -19,11 +19,11 @@
+ #include "libavutil/common.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_av1.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_av1.h"
+ 
+ typedef struct AV1MetadataContext {
+     CBSBSFContext common;
+diff --git a/libavcodec/bsf/chomp.c b/libavcodec/bsf/chomp.c
+index 532b4e6a94f6be000e99508956389d652399c7ee..88110142eddd9e0fed789d219640b661a23cff8c 100644
+--- a/libavcodec/bsf/chomp.c
++++ b/libavcodec/bsf/chomp.c
+@@ -19,8 +19,8 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ static int chomp_filter(AVBSFContext *ctx, AVPacket *pkt)
+ {
+diff --git a/libavcodec/bsf/dca_core.c b/libavcodec/bsf/dca_core.c
+index 1a2db39cba31ad80feb1547237e440d4b15b3a26..a239e7fa07ba0e7e97a2341ec73f6fd6ecf8fe78 100644
+--- a/libavcodec/bsf/dca_core.c
++++ b/libavcodec/bsf/dca_core.c
+@@ -18,10 +18,10 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "dca_syncwords.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/dca_syncwords.h"
+ 
+ static int dca_core_filter(AVBSFContext *ctx, AVPacket *pkt)
+ {
+diff --git a/libavcodec/bsf/dts2pts.c b/libavcodec/bsf/dts2pts.c
+index 53a54fb1cc5c34a90bc3b5476f26ee11fe013b5a..78d86ca86c0386bb0f76fbfb8046e3780bf60916 100644
+--- a/libavcodec/bsf/dts2pts.c
++++ b/libavcodec/bsf/dts2pts.c
+@@ -28,12 +28,12 @@
+ #include "libavutil/mem.h"
+ #include "libavutil/tree.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_h264.h"
+-#include "h264_parse.h"
+-#include "h264_ps.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_h264.h"
++#include "libavcodec/h264_parse.h"
++#include "libavcodec/h264_ps.h"
+ 
+ typedef struct DTS2PTSNode {
+     int64_t      dts;
+diff --git a/libavcodec/bsf/dump_extradata.c b/libavcodec/bsf/dump_extradata.c
+index 43619879cc71f213c388c46920b22ac4998afad7..9db66d1d271f9441c1286127c5ef0bc9e81b12b6 100644
+--- a/libavcodec/bsf/dump_extradata.c
++++ b/libavcodec/bsf/dump_extradata.c
+@@ -20,8 +20,8 @@
+ 
+ #include <string.h>
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ #include "libavutil/log.h"
+ #include "libavutil/opt.h"
+diff --git a/libavcodec/bsf/dv_error_marker.c b/libavcodec/bsf/dv_error_marker.c
+index c8bb9e062fd9b88b6e21919a5557911bd8440264..644cde28fb16f16c5ac0a7f45a1bcbccd319e423 100644
+--- a/libavcodec/bsf/dv_error_marker.c
++++ b/libavcodec/bsf/dv_error_marker.c
+@@ -18,8 +18,8 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ #include "libavutil/colorspace.h"
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/opt.h"
+diff --git a/libavcodec/bsf/eac3_core.c b/libavcodec/bsf/eac3_core.c
+index 1c714b18f9294c2eaccf6a2f632390b378b87b6d..4fd0d962d345222aa7efdf419ae0478f9372e9b0 100644
+--- a/libavcodec/bsf/eac3_core.c
++++ b/libavcodec/bsf/eac3_core.c
+@@ -18,10 +18,10 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "get_bits.h"
+-#include "ac3_parser_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/get_bits.h"
++#include "libavcodec/ac3_parser_internal.h"
+ 
+ static int eac3_core_filter(AVBSFContext *ctx, AVPacket *pkt)
+ {
+diff --git a/libavcodec/bsf/evc_frame_merge.c b/libavcodec/bsf/evc_frame_merge.c
+index 1b52ba29002e91300612b9d438c785de43fc7fbc..1b96eec85b2d3120566695f473b175c0786dd8ad 100644
+--- a/libavcodec/bsf/evc_frame_merge.c
++++ b/libavcodec/bsf/evc_frame_merge.c
+@@ -18,13 +18,13 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ #include "libavutil/mem.h"
+-#include "get_bits.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/get_bits.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+-#include "evc.h"
+-#include "evc_parse.h"
+-#include "evc_ps.h"
++#include "libavcodec/evc.h"
++#include "libavcodec/evc_parse.h"
++#include "libavcodec/evc_ps.h"
+ 
+ // Access unit data
+ typedef struct AccessUnitBuffer {
+diff --git a/libavcodec/bsf/extract_extradata.c b/libavcodec/bsf/extract_extradata.c
+index c3c98c7d7739c7375f90241a1cf4e9fbac9f7917..6518199a5b97616bd5e6c6878e17d27e82e683d1 100644
+--- a/libavcodec/bsf/extract_extradata.c
++++ b/libavcodec/bsf/extract_extradata.c
+@@ -22,17 +22,17 @@
+ #include "libavutil/mem.h"
+ #include "libavutil/opt.h"
+ 
+-#include "av1.h"
+-#include "av1_parse.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "h2645_parse.h"
+-#include "h264.h"
+-#include "hevc.h"
+-#include "startcode.h"
+-#include "vc1_common.h"
+-#include "vvc.h"
++#include "libavcodec/av1.h"
++#include "libavcodec/av1_parse.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/h2645_parse.h"
++#include "libavcodec/h264.h"
++#include "libavcodec/hevc.h"
++#include "libavcodec/startcode.h"
++#include "libavcodec/vc1_common.h"
++#include "libavcodec/vvc.h"
+ 
+ typedef struct ExtractExtradataContext {
+     const AVClass *class;
+diff --git a/libavcodec/bsf/filter_units.c b/libavcodec/bsf/filter_units.c
+index 029c86048bf86229b4d7d24e28f1f11a6098a9aa..8bfdec6a6dca9d2db3a4f23fcf418aefb7cca897 100644
+--- a/libavcodec/bsf/filter_units.c
++++ b/libavcodec/bsf/filter_units.c
+@@ -21,9 +21,9 @@
+ #include "libavutil/mem.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
+ 
+ 
+ typedef struct FilterUnitsContext {
+diff --git a/libavcodec/bsf/h264_metadata.c b/libavcodec/bsf/h264_metadata.c
+index 477f1b18b62bb01cf21e74f8134738e821b82ec9..b5d81e41e5ea770eabebebb3115cdbcdc8efe794 100644
+--- a/libavcodec/bsf/h264_metadata.c
++++ b/libavcodec/bsf/h264_metadata.c
+@@ -22,16 +22,16 @@
+ #include "libavutil/mem.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_h264.h"
+-#include "cbs_sei.h"
+-#include "h264.h"
+-#include "h264_levels.h"
+-#include "h2645data.h"
+-#include "sei.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_h264.h"
++#include "libavcodec/cbs_sei.h"
++#include "libavcodec/h264.h"
++#include "libavcodec/h264_levels.h"
++#include "libavcodec/h2645data.h"
++#include "libavcodec/sei.h"
+ 
+ enum {
+     FLIP_HORIZONTAL = 1,
+diff --git a/libavcodec/bsf/h264_mp4toannexb.c b/libavcodec/bsf/h264_mp4toannexb.c
+index 92af6a68810aa3cb841771c30947e48ec42bfc3e..95721ad647b7787079cdf045a11ebef6c8e72852 100644
+--- a/libavcodec/bsf/h264_mp4toannexb.c
++++ b/libavcodec/bsf/h264_mp4toannexb.c
+@@ -25,11 +25,11 @@
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/mem.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "defs.h"
+-#include "h264.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/defs.h"
++#include "libavcodec/h264.h"
+ 
+ typedef struct H264BSFContext {
+     uint8_t *sps;
+diff --git a/libavcodec/bsf/h264_redundant_pps.c b/libavcodec/bsf/h264_redundant_pps.c
+index df9a88a705e0cf9ca945a77b908fe4a0fdb0ff92..a07e87cac7bb2d8639bef0cda8c167521b12e982 100644
+--- a/libavcodec/bsf/h264_redundant_pps.c
++++ b/libavcodec/bsf/h264_redundant_pps.c
+@@ -20,14 +20,14 @@
+ 
+ #include "libavutil/log.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_h264.h"
+-#include "codec_id.h"
+-#include "h264.h"
+-#include "packet.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_h264.h"
++#include "libavcodec/codec_id.h"
++#include "libavcodec/h264.h"
++#include "libavcodec/packet.h"
+ 
+ #define NEW_GLOBAL_PIC_INIT_QP 26
+ 
+diff --git a/libavcodec/bsf/h265_metadata.c b/libavcodec/bsf/h265_metadata.c
+index c9e1cc3eed6ed025edef34fcc7f58e241ca72aa3..d3f6596407ebd279be9af7280453ccfac77b450a 100644
+--- a/libavcodec/bsf/h265_metadata.c
++++ b/libavcodec/bsf/h265_metadata.c
+@@ -19,14 +19,14 @@
+ #include "libavutil/common.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_h265.h"
+-#include "h2645data.h"
+-#include "hevc.h"
+-#include "h265_profile_level.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_h265.h"
++#include "libavcodec/h2645data.h"
++#include "libavcodec/hevc.h"
++#include "libavcodec/h265_profile_level.h"
+ 
+ enum {
+     LEVEL_UNSET = -2,
+diff --git a/libavcodec/bsf/h266_metadata.c b/libavcodec/bsf/h266_metadata.c
+index 1f0f875cfeef9050bd2601c04829ea433e2809a3..b847dc1860091c2529e4d7059f7a31afdd3da649 100644
+--- a/libavcodec/bsf/h266_metadata.c
++++ b/libavcodec/bsf/h266_metadata.c
+@@ -19,12 +19,12 @@
+ #include "libavutil/common.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_h266.h"
+-#include "vvc.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_h266.h"
++#include "libavcodec/vvc.h"
+ 
+ #define IS_H266_SLICE(nut) (nut <= VVC_RASL_NUT || (nut >= VVC_IDR_W_RADL && nut <= VVC_GDR_NUT))
+ 
+diff --git a/libavcodec/bsf/hapqa_extract.c b/libavcodec/bsf/hapqa_extract.c
+index 5c49a4de2270df02adc45754974749821c0737b5..ece79d1e5700f948f3d9955bbfce0243a874bbad 100644
+--- a/libavcodec/bsf/hapqa_extract.c
++++ b/libavcodec/bsf/hapqa_extract.c
+@@ -25,10 +25,10 @@
+  * extract one of the two textures of the HAQA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "hap.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/hap.h"
+ 
+ #include "libavutil/opt.h"
+ 
+diff --git a/libavcodec/bsf/hevc_mp4toannexb.c b/libavcodec/bsf/hevc_mp4toannexb.c
+index 8eec18f31e617a292b57a8445c5b30911502914e..055852b4a43c240da8d69b405774afc11c029757 100644
+--- a/libavcodec/bsf/hevc_mp4toannexb.c
++++ b/libavcodec/bsf/hevc_mp4toannexb.c
+@@ -24,11 +24,11 @@
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/mem.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "defs.h"
+-#include "hevc.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/defs.h"
++#include "libavcodec/hevc.h"
+ 
+ #define MIN_HEVCC_LENGTH 23
+ 
+diff --git a/libavcodec/bsf/imx_dump_header.c b/libavcodec/bsf/imx_dump_header.c
+index 241415a0ef0b1fc946b1f609b7031bf0810325d3..ea6526b22bc59045975834e3a44d5b1138823be3 100644
+--- a/libavcodec/bsf/imx_dump_header.c
++++ b/libavcodec/bsf/imx_dump_header.c
+@@ -25,9 +25,9 @@
+  * modifies bitstream to fit in mov and be decoded by final cut pro decoder
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
+ 
+ 
+ static int imx_dump_header(AVBSFContext *ctx, AVPacket *out)
+diff --git a/libavcodec/bsf/media100_to_mjpegb.c b/libavcodec/bsf/media100_to_mjpegb.c
+index 6e117ae20fbfcf348b16dc14b27e67ffaa82f31d..a738a52bf006be2175dbef3877760bdafbbda17b 100644
+--- a/libavcodec/bsf/media100_to_mjpegb.c
++++ b/libavcodec/bsf/media100_to_mjpegb.c
+@@ -25,9 +25,9 @@
+  */
+ 
+ #include "libavutil/intreadwrite.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
+ 
+ static av_cold int init(AVBSFContext *ctx)
+ {
+diff --git a/libavcodec/bsf/mjpeg2jpeg.c b/libavcodec/bsf/mjpeg2jpeg.c
+index f545e9438df856230dbca47d8d13c19827ef04c8..2aad5498c6768d04935fc722d0cb51520cabc1c5 100644
+--- a/libavcodec/bsf/mjpeg2jpeg.c
++++ b/libavcodec/bsf/mjpeg2jpeg.c
+@@ -29,10 +29,10 @@
+ #include "libavutil/error.h"
+ #include "libavutil/intreadwrite.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "jpegtables.h"
+-#include "mjpeg.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/jpegtables.h"
++#include "libavcodec/mjpeg.h"
+ 
+ static const uint8_t jpeg_header[] = {
+     0xff, 0xd8,                     // SOI
+diff --git a/libavcodec/bsf/mjpega_dump_header.c b/libavcodec/bsf/mjpega_dump_header.c
+index d541084e742e4246ac21b9de11d0059800ac6b13..089358a5e1ba0f5e7efe5443e2656de7f24d0a5f 100644
+--- a/libavcodec/bsf/mjpega_dump_header.c
++++ b/libavcodec/bsf/mjpega_dump_header.c
+@@ -25,10 +25,10 @@
+  * modifies bitstream to be decoded by quicktime
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "mjpeg.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/mjpeg.h"
+ 
+ 
+ static int mjpega_dump_header(AVBSFContext *ctx, AVPacket *out)
+diff --git a/libavcodec/bsf/movsub.c b/libavcodec/bsf/movsub.c
+index a5125c7aff10577bbf7ef5632c3a95d452b9d2ef..1c709a4bd7185d01196e1f8ac82c04a967a0b6ef 100644
+--- a/libavcodec/bsf/movsub.c
++++ b/libavcodec/bsf/movsub.c
+@@ -20,8 +20,8 @@
+ 
+ #include "libavutil/common.h"
+ #include "libavutil/intreadwrite.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ static int text2movsub(AVBSFContext *ctx, AVPacket *out)
+ {
+diff --git a/libavcodec/bsf/mpeg2_metadata.c b/libavcodec/bsf/mpeg2_metadata.c
+index 1aa6e027914ecdd1caadd8854b30570f8d10fc32..e206c49b794cf33013ef133970eeab911af40cfc 100644
+--- a/libavcodec/bsf/mpeg2_metadata.c
++++ b/libavcodec/bsf/mpeg2_metadata.c
+@@ -19,12 +19,12 @@
+ #include "libavutil/common.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_mpeg2.h"
+-#include "mpeg12.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_mpeg2.h"
++#include "libavcodec/mpeg12.h"
+ 
+ typedef struct MPEG2MetadataContext {
+     CBSBSFContext common;
+diff --git a/libavcodec/bsf/mpeg4_unpack_bframes.c b/libavcodec/bsf/mpeg4_unpack_bframes.c
+index 3a3aad795f4f0e21dbd6ca29dfb64d254aaff79f..97d2c09482ac0d06704f75783c9a11347cb2f624 100644
+--- a/libavcodec/bsf/mpeg4_unpack_bframes.c
++++ b/libavcodec/bsf/mpeg4_unpack_bframes.c
+@@ -19,10 +19,10 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "mpeg4videodefs.h"
+-#include "startcode.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/mpeg4videodefs.h"
++#include "libavcodec/startcode.h"
+ 
+ typedef struct UnpackBFramesBSFContext {
+     AVBufferRef *b_frame_ref;
+diff --git a/libavcodec/bsf/noise.c b/libavcodec/bsf/noise.c
+index a6228557170b8caf3db6b819446ed252b2bb5a74..e95917b3e8dc6ec16fa5fa7f2cb530055dfa2ca5 100644
+--- a/libavcodec/bsf/noise.c
++++ b/libavcodec/bsf/noise.c
+@@ -20,8 +20,8 @@
+ 
+ #include <stdlib.h>
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ #include "libavutil/log.h"
+ #include "libavutil/mem.h"
+diff --git a/libavcodec/bsf/null.c b/libavcodec/bsf/null.c
+index 28237076fbff57fea9f49c16a72658a6616814df..e4da649a0c3ef869248f3ddcdc8dd29aaa81f2c2 100644
+--- a/libavcodec/bsf/null.c
++++ b/libavcodec/bsf/null.c
+@@ -21,7 +21,7 @@
+  * Null bitstream filter -- pass the input through unchanged.
+  */
+ 
+-#include "bsf_internal.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ const FFBitStreamFilter ff_null_bsf = {
+     .p.name         = "null",
+diff --git a/libavcodec/bsf/opus_metadata.c b/libavcodec/bsf/opus_metadata.c
+index 2a0f86cec35d9e2c702dbfae92f1fafad3181e22..c6fcd9b0f14ffc996dedc443987d9f2b5526a501 100644
+--- a/libavcodec/bsf/opus_metadata.c
++++ b/libavcodec/bsf/opus_metadata.c
+@@ -16,8 +16,8 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/opt.h"
+ 
+diff --git a/libavcodec/bsf/pcm_rechunk.c b/libavcodec/bsf/pcm_rechunk.c
+index b1b57f96a9329e7c435b6b442e4deaed1dfbb885..0c1007e2718d872392facb5c4a438e1b9421fefa 100644
+--- a/libavcodec/bsf/pcm_rechunk.c
++++ b/libavcodec/bsf/pcm_rechunk.c
+@@ -18,8 +18,8 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ #include "libavutil/avassert.h"
+ #include "libavutil/opt.h"
+ 
+diff --git a/libavcodec/bsf/pgs_frame_merge.c b/libavcodec/bsf/pgs_frame_merge.c
+index bcd8945335a5f3efcbe8cb4532f0e36781c49802..fb587831a467f008eca622cbb37657609bfd7fa7 100644
+--- a/libavcodec/bsf/pgs_frame_merge.c
++++ b/libavcodec/bsf/pgs_frame_merge.c
+@@ -30,8 +30,8 @@
+ #include "libavutil/attributes.h"
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/log.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ enum PGSSegmentType {
+     PALETTE_SEGMENT         = 0x14,
+diff --git a/libavcodec/bsf/prores_metadata.c b/libavcodec/bsf/prores_metadata.c
+index 32af17cedf78dc1c040cfc3b74b3ee97c93a399e..8248004713964abe8e325f38ac68c3fb453ac3e9 100644
+--- a/libavcodec/bsf/prores_metadata.c
++++ b/libavcodec/bsf/prores_metadata.c
+@@ -29,8 +29,8 @@
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ typedef struct ProresMetadataContext {
+     const AVClass *class;
+diff --git a/libavcodec/bsf/remove_extradata.c b/libavcodec/bsf/remove_extradata.c
+index 3010eba058bf6a674ee22b776203efcfb4f54d6a..65bb62b24a2d3650b6ed259cc21f807eea1e864f 100644
+--- a/libavcodec/bsf/remove_extradata.c
++++ b/libavcodec/bsf/remove_extradata.c
+@@ -21,13 +21,13 @@
+ #include "libavutil/log.h"
+ #include "libavutil/opt.h"
+ 
+-#include "av1_parse.h"
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "h264.h"
+-#include "hevc.h"
+-#include "startcode.h"
+-#include "vc1_common.h"
++#include "libavcodec/av1_parse.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/h264.h"
++#include "libavcodec/hevc.h"
++#include "libavcodec/startcode.h"
++#include "libavcodec/vc1_common.h"
+ 
+ enum RemoveFreq {
+     REMOVE_FREQ_KEYFRAME,
+diff --git a/libavcodec/bsf/setts.c b/libavcodec/bsf/setts.c
+index 9c27b24a39ae1a1a357a38bf93e50e5472c3adc6..07b204fa3ab749fd70c36995f7af345a20b7bde3 100644
+--- a/libavcodec/bsf/setts.c
++++ b/libavcodec/bsf/setts.c
+@@ -26,8 +26,8 @@
+ #include "libavutil/opt.h"
+ #include "libavutil/eval.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ static const char *const var_names[] = {
+     "N",           ///< frame number (starting at zero)
+diff --git a/libavcodec/bsf/showinfo.c b/libavcodec/bsf/showinfo.c
+index 4e31e0b5cba6ee1532ddfdedc9d6e03f6e00ebb5..073c3701acd1621e7bbae72436ff08bc2817b29d 100644
+--- a/libavcodec/bsf/showinfo.c
++++ b/libavcodec/bsf/showinfo.c
+@@ -20,8 +20,8 @@
+ 
+ #include <inttypes.h>
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
+ 
+ #include "libavutil/log.h"
+ #include "libavutil/timestamp.h"
+diff --git a/libavcodec/bsf/trace_headers.c b/libavcodec/bsf/trace_headers.c
+index 8781f5f10012ebe4d8be3ea3b1fc0b06ffd234f1..92c9f5e9cc2a7a4bbdfda9d1747ae49631dd7d3e 100644
+--- a/libavcodec/bsf/trace_headers.c
++++ b/libavcodec/bsf/trace_headers.c
+@@ -22,9 +22,9 @@
+ #include "libavutil/avutil.h"
+ #include "libavutil/log.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
+ 
+ 
+ typedef struct TraceHeadersContext {
+diff --git a/libavcodec/bsf/truehd_core.c b/libavcodec/bsf/truehd_core.c
+index ee1060b0214c8490a7a750963122e4038dbfeb73..bb113593adcca9c18e8cf4681d026d1cbf5fd011 100644
+--- a/libavcodec/bsf/truehd_core.c
++++ b/libavcodec/bsf/truehd_core.c
+@@ -18,11 +18,11 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "get_bits.h"
+-#include "mlp_parse.h"
+-#include "mlp.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/get_bits.h"
++#include "libavcodec/mlp_parse.h"
++#include "libavcodec/mlp.h"
+ 
+ typedef struct AccessUnit {
+     uint8_t bits[4];
+diff --git a/libavcodec/bsf/vp9_metadata.c b/libavcodec/bsf/vp9_metadata.c
+index 355ffd5f8dc847e6cd49bfcd113bf0a0a1fecfb5..d5e083eeb55f4ba4a30f1e7c6cc0219d81919a28 100644
+--- a/libavcodec/bsf/vp9_metadata.c
++++ b/libavcodec/bsf/vp9_metadata.c
+@@ -19,11 +19,11 @@
+ #include "libavutil/log.h"
+ #include "libavutil/opt.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "cbs.h"
+-#include "cbs_bsf.h"
+-#include "cbs_vp9.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/cbs.h"
++#include "libavcodec/cbs_bsf.h"
++#include "libavcodec/cbs_vp9.h"
+ 
+ typedef struct VP9MetadataContext {
+     CBSBSFContext common;
+diff --git a/libavcodec/bsf/vp9_raw_reorder.c b/libavcodec/bsf/vp9_raw_reorder.c
+index d36093316ca87a6117fe117c1b9dde75e9143b9d..df2d1da5e95726d246897ddb37c1cbdecb5180d5 100644
+--- a/libavcodec/bsf/vp9_raw_reorder.c
++++ b/libavcodec/bsf/vp9_raw_reorder.c
+@@ -21,10 +21,10 @@
+ #include "libavutil/log.h"
+ #include "libavutil/mem.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "get_bits.h"
+-#include "put_bits.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/get_bits.h"
++#include "libavcodec/put_bits.h"
+ 
+ #define FRAME_SLOTS 8
+ 
+diff --git a/libavcodec/bsf/vp9_superframe.c b/libavcodec/bsf/vp9_superframe.c
+index a0978c7ef01e52ade6afeec3671525f4e7d645fb..bd9a251d2c6f2cdedbdc56376920aab83fc34f96 100644
+--- a/libavcodec/bsf/vp9_superframe.c
++++ b/libavcodec/bsf/vp9_superframe.c
+@@ -21,9 +21,9 @@
+ 
+ #include "libavutil/avassert.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "get_bits.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/get_bits.h"
+ 
+ #define MAX_CACHE 8
+ typedef struct VP9BSFContext {
+diff --git a/libavcodec/bsf/vp9_superframe_split.c b/libavcodec/bsf/vp9_superframe_split.c
+index cddd48119ce27cd90050e64be588c5dcba4a35ea..92bad62e2913be921a64bc82c7c7fe25ae37d4d2 100644
+--- a/libavcodec/bsf/vp9_superframe_split.c
++++ b/libavcodec/bsf/vp9_superframe_split.c
+@@ -24,10 +24,10 @@
+ 
+ #include <stddef.h>
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "get_bits.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/get_bits.h"
+ 
+ typedef struct VP9SFSplitContext {
+     AVPacket *buffer_pkt;
+diff --git a/libavcodec/bsf/vvc_mp4toannexb.c b/libavcodec/bsf/vvc_mp4toannexb.c
+index 36bdae8f494f5765fbee0a33dc548c924a66f352..ece3bb930eba4995e3744449ba57cf314155bf9b 100644
+--- a/libavcodec/bsf/vvc_mp4toannexb.c
++++ b/libavcodec/bsf/vvc_mp4toannexb.c
+@@ -24,11 +24,11 @@
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/mem.h"
+ 
+-#include "bsf.h"
+-#include "bsf_internal.h"
+-#include "bytestream.h"
+-#include "defs.h"
+-#include "vvc.h"
++#include "libavcodec/bsf.h"
++#include "libavcodec/bsf_internal.h"
++#include "libavcodec/bytestream.h"
++#include "libavcodec/defs.h"
++#include "libavcodec/vvc.h"
+ 
+ #define MIN_VVCC_LENGTH 23
+ 

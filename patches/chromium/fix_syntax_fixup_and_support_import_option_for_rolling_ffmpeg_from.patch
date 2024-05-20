@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 20 May 2024 11:15:34 -0700
+Subject: fix: syntax fixup and support import option for rolling ffmpeg from
+ discord scripts
+
+Correct several issues when rolling ffmpeg.
+
+diff --git a/media/ffmpeg/scripts/generate_gn.py b/media/ffmpeg/scripts/generate_gn.py
+index d819546d47b4f91957ee32606534be61d0862668..d4fce5292c988cc8a44d90ef80301ff5dbfb8bce 100755
+--- a/media/ffmpeg/scripts/generate_gn.py
++++ b/media/ffmpeg/scripts/generate_gn.py
+@@ -784,8 +784,10 @@ def GetIncludedSources(file_path, source_dir, include_set, scan_only=False):
+     if not os.path.isabs(file_path):
+         file_path = os.path.abspath(os.path.join(source_dir, file_path))
+     file_path = os.path.normpath(file_path)
++    parent_path = os.path.normpath(os.path.join(file_path, '..'))
+ 
+     current_dir = os.path.dirname(file_path)
++    parent_dir = os.path.dirname(parent_path)
+ 
+     # Already processed this file, bail out.
+     if file_path in include_set:
+@@ -810,6 +812,8 @@ def GetIncludedSources(file_path, source_dir, include_set, scan_only=False):
+         # and we'll checking their validity below.
+         include_path_in_current_dir = os.path.join(current_dir,
+                                                    include_file_path)
++        include_path_in_current_parent_dir = os.path.join(parent_dir,
++                                                          include_file_path)
+         include_path_in_source_dir = os.path.join(source_dir,
+                                                   include_file_path)
+         resolved_include_path = ''
+@@ -820,6 +824,9 @@ def GetIncludedSources(file_path, source_dir, include_set, scan_only=False):
+         # Else, check source_dir (should be FFmpeg root).
+         elif os.path.isfile(include_path_in_source_dir):
+             resolved_include_path = include_path_in_source_dir
++        # Else, check parent_dir
++        elif os.path.isfile(include_path_in_current_parent_dir):
++            resolved_include_path = include_path_in_current_parent_dir
+         # Else, we couldn't find it :(.
+         elif include_file_path in IGNORED_INCLUDE_FILES:
+             continue
+diff --git a/media/ffmpeg/scripts/robosushi.py b/media/ffmpeg/scripts/robosushi.py
+index 90e910c09cf7b6f9ce4c97545e8372c4cba3d331..daffd78102c8a9b52c406be66e6fa9755203af1c 100755
+--- a/media/ffmpeg/scripts/robosushi.py
++++ b/media/ffmpeg/scripts/robosushi.py
+@@ -51,6 +51,9 @@ def main(argv):
+         '--build-gn',
+         action='store_true',
+         help='Unconditionally build all the configs and import them.')
++    parser.add_argument('--import-only',
++                        action='store_true',
++                        help='Import ffmpeg configuration')
+     parser.add_argument('--auto-merge',
+                         action='store_true',
+                         help='Run auto-merge. (Usually what you want)')
+@@ -96,6 +99,8 @@ def main(argv):
+     if options.build_gn:
+         # Unconditionally build all the configs and import them.
+         robo_build.BuildAndImportAllFFmpegConfigs(robo_configuration)
++    if options.import_only:
++        robo_build.ImportFFmpegConfigsIntoChromium(robo_configuration)
+     if options.auto_merge:
+         exec_steps += ["auto-merge"]
+     if options.step:

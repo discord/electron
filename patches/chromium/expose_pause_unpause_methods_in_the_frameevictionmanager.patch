@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 20 Jun 2024 11:59:03 -0700
+Subject: expose pause/unpause methods in the FrameEvictionManager.
+
+Allows dynamic toggling of the aggressive frame culling.
+
+diff --git a/components/viz/client/frame_eviction_manager.cc b/components/viz/client/frame_eviction_manager.cc
+index eb0396cccd182b97783068e2778769db713e1272..89e13517ed519c1eeec2afda678ebe4d8f7a7137 100644
+--- a/components/viz/client/frame_eviction_manager.cc
++++ b/components/viz/client/frame_eviction_manager.cc
+@@ -251,6 +251,14 @@ void FrameEvictionManager::Unpause() {
+   }
+ }
+ 
++void FrameEvictionManager::UnscopedPause() {
++  Pause();
++}
++
++void FrameEvictionManager::UnscopedUnpause() {
++  Unpause();
++}
++
+ bool FrameEvictionManager::OnMemoryDump(
+     const base::trace_event::MemoryDumpArgs& args,
+     base::trace_event::ProcessMemoryDump* pmd) {
+diff --git a/components/viz/client/frame_eviction_manager.h b/components/viz/client/frame_eviction_manager.h
+index 18e9ad95f12c607aebf5dda984c60131cd9b78c7..7abe5afb3d89c1cdde08e9ffe1ea598327fc9c7e 100644
+--- a/components/viz/client/frame_eviction_manager.h
++++ b/components/viz/client/frame_eviction_manager.h
+@@ -83,6 +83,10 @@ class VIZ_CLIENT_EXPORT FrameEvictionManager
+   // Purges all unlocked frames, allowing us to reclaim resources.
+   void PurgeAllUnlockedFrames();
+ 
++  //
++  void UnscopedPause();
++  void UnscopedUnpause();
++
+   // Chosen arbitrarily, didn't show regressions in metrics during a field trial
+   // in 2023. Should ideally be higher than a common time to switch between
+   // tabs. The reasoning is that if a tab isn't switched to in this delay, then

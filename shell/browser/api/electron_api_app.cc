@@ -29,6 +29,7 @@
 #include "components/proxy_config/proxy_config_dictionary.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
+#include "components/viz/client/frame_eviction_manager.h"
 #include "content/browser/gpu/compositor_util.h"        // nogncheck
 #include "content/browser/gpu/gpu_data_manager_impl.h"  // nogncheck
 #include "content/public/browser/browser_accessibility_state.h"
@@ -1141,6 +1142,14 @@ void App::DisableHardwareAcceleration(gin_helper::ErrorThrower thrower) {
   }
 }
 
+void App::PauseFrameEvictionManager() {
+  viz::FrameEvictionManager::GetInstance()->UnscopedPause();
+}
+
+void App::UnpauseFrameEvictionManager() {
+  viz::FrameEvictionManager::GetInstance()->UnscopedUnpause();
+}
+
 void App::DisableDomainBlockingFor3DAPIs(gin_helper::ErrorThrower thrower) {
   if (Browser::Get()->is_ready()) {
     thrower.ThrowError(
@@ -1826,6 +1835,9 @@ gin::ObjectTemplateBuilder App::GetObjectTemplateBuilder(v8::Isolate* isolate) {
                  &App::DisableHardwareAcceleration)
       .SetMethod("disableDomainBlockingFor3DAPIs",
                  &App::DisableDomainBlockingFor3DAPIs)
+      .SetMethod("pauseFrameEvictionManager", &App::PauseFrameEvictionManager)
+      .SetMethod("unpauseFrameEvictionManager",
+                 &App::UnpauseFrameEvictionManager)
       .SetMethod("getFileIcon", &App::GetFileIcon)
       .SetMethod("getAppMetrics", &App::GetAppMetrics)
       .SetMethod("getGPUFeatureStatus", &App::GetGPUFeatureStatus)

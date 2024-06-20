@@ -215,6 +215,8 @@ class App final : public gin::Wrappable<App>,
   void DisableHardwareAcceleration(gin_helper::ErrorThrower thrower);
   bool IsHardwareAccelerationEnabled();
   void DisableDomainBlockingFor3DAPIs(gin_helper::ErrorThrower thrower);
+  void PauseFrameEvictionManager();
+  void UnpauseFrameEvictionManager();
   bool IsAccessibilitySupportEnabled();
   v8::Local<v8::Value> GetAccessibilitySupportFeatures();
   void SetAccessibilitySupportFeatures(

@@ -1,2 +1,3 @@
 link_with_loader_path.patch
 add_discord_ffmpeg_config_options.patch
+revert_aom_film_grain_synthesis_bsd_2-clause_isn_t_supported_license.patch

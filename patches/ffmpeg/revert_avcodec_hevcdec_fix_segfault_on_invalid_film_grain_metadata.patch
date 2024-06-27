@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 27 Jun 2024 15:36:44 -0700
+Subject: Revert "avcodec/hevcdec: fix segfault on invalid film grain metadata"
+
+This reverts commit 459648761f5412acdc3317d5bac982ceaa257584.
+
+diff --git a/libavcodec/hevcdec.c b/libavcodec/hevcdec.c
+index b41dc460536a06ad6d0f2a7ac0f71ae3159d7593..890666cbae950b320b66bd958a22da619acef243 100644
+--- a/libavcodec/hevcdec.c
++++ b/libavcodec/hevcdec.c
+@@ -2893,15 +2893,10 @@ static int hevc_frame_start(HEVCContext *s)
+         !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN) &&
+         !s->avctx->hwaccel;
+ 
+-    ret = set_side_data(s);
+-    if (ret < 0)
+-        goto fail;
+-
+     if (s->ref->needs_fg &&
+-        (s->sei.common.film_grain_characteristics.present &&
+-         !ff_h274_film_grain_params_supported(s->sei.common.film_grain_characteristics.model_id,
+-                                              s->ref->frame->format)
+-         || !av_film_grain_params_select(s->ref->frame))) {
++        s->sei.common.film_grain_characteristics.present &&
++        !ff_h274_film_grain_params_supported(s->sei.common.film_grain_characteristics.model_id,
++                                             s->ref->frame->format)) {
+         av_log_once(s->avctx, AV_LOG_WARNING, AV_LOG_DEBUG, &s->film_grain_warning_shown,
+                     "Unsupported film grain parameters. Ignoring film grain.\n");
+         s->ref->needs_fg = 0;
+@@ -2915,6 +2910,10 @@ static int hevc_frame_start(HEVCContext *s)
+             goto fail;
+     }
+ 
++    ret = set_side_data(s);
++    if (ret < 0)
++        goto fail;
++
+     s->frame->pict_type = 3 - s->sh.slice_type;
+ 
+     if (!IS_IRAP(s))

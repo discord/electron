@@ -16,7 +16,7 @@ index fb70ad0c21c60f0cd377218449b4e39a0981f9e4..e506ac61fd1c05b6c6296a5c3c62ef2b
 -
 -libavcodec/bsf/%.o: CPPFLAGS += -I$(SRC_PATH)/libavcodec/
 diff --git a/libavcodec/bsf/aac_adtstoasc.c b/libavcodec/bsf/aac_adtstoasc.c
-index dd5e8b2a31f13a769d89a9c715a2a0e38a3c2808..08373fc3b22ee4ce891a1938c2a41a0b9d2c1eed 100644
+index b821414f2aea8e341860c56142ab69ce41439196..dd6e8e8a38587402415a76b13d82bc0497bfbe59 100644
 --- a/libavcodec/bsf/aac_adtstoasc.c
 +++ b/libavcodec/bsf/aac_adtstoasc.c
 @@ -19,14 +19,14 @@
@@ -136,7 +136,7 @@ index 1a2db39cba31ad80feb1547237e440d4b15b3a26..a239e7fa07ba0e7e97a2341ec73f6fd6
  static int dca_core_filter(AVBSFContext *ctx, AVPacket *pkt)
  {
 diff --git a/libavcodec/bsf/dts2pts.c b/libavcodec/bsf/dts2pts.c
-index 53a54fb1cc5c34a90bc3b5476f26ee11fe013b5a..78d86ca86c0386bb0f76fbfb8046e3780bf60916 100644
+index ba4dc43f843ad6aa881ff5762c67336be754f0b0..2b3b21483f4b9e7bee265342f0ceda3461dfc69c 100644
 --- a/libavcodec/bsf/dts2pts.c
 +++ b/libavcodec/bsf/dts2pts.c
 @@ -28,12 +28,12 @@

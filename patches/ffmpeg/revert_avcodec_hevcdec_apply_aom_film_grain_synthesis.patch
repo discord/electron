@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 27 Jun 2024 15:37:17 -0700
+Subject: Revert "avcodec/hevcdec: apply AOM film grain synthesis"
+
+This reverts commit 5d7f234e7ec45ccc385dca8c5fbe3b887af1c2c6.
+
+diff --git a/libavcodec/Makefile b/libavcodec/Makefile
+index f3cc514424cfefe3931f52aa8dd7935a55bf3b1f..807ae41dbf250a85eb13d4fb16d5a83b16353560 100644
+--- a/libavcodec/Makefile
++++ b/libavcodec/Makefile
+@@ -433,7 +433,7 @@ OBJS-$(CONFIG_HDR_ENCODER)             += hdrenc.o
+ OBJS-$(CONFIG_HEVC_DECODER)            += hevcdec.o hevc_mvs.o \
+                                           hevc_cabac.o hevc_refs.o hevcpred.o    \
+                                           hevcdsp.o hevc_filter.o hevc_data.o \
+-                                          h274.o aom_film_grain.o
++                                          h274.o
+ OBJS-$(CONFIG_HEVC_AMF_ENCODER)        += amfenc_hevc.o
+ OBJS-$(CONFIG_HEVC_CUVID_DECODER)      += cuviddec.o
+ OBJS-$(CONFIG_HEVC_MEDIACODEC_DECODER) += mediacodecdec.o
+diff --git a/libavcodec/hevcdec.c b/libavcodec/hevcdec.c
+index 890666cbae950b320b66bd958a22da619acef243..816f20f0d1bec2d352fade6eea8789011ca0d9c7 100644
+--- a/libavcodec/hevcdec.c
++++ b/libavcodec/hevcdec.c
+@@ -36,7 +36,6 @@
+ #include "libavutil/pixdesc.h"
+ #include "libavutil/timecode.h"
+ 
+-#include "aom_film_grain.h"
+ #include "bswapdsp.h"
+ #include "cabac_functions.h"
+ #include "codec_internal.h"
+@@ -390,8 +389,7 @@ static int export_stream_params_from_sei(HEVCContext *s)
+         avctx->color_trc = s->sei.common.alternative_transfer.preferred_transfer_characteristics;
+     }
+ 
+-    if (s->sei.common.film_grain_characteristics.present ||
+-        s->sei.common.aom_film_grain.enable)
++    if (s->sei.common.film_grain_characteristics.present)
+         avctx->properties |= FF_CODEC_PROPERTY_FILM_GRAIN;
+ 
+     return 0;
+@@ -2888,13 +2886,11 @@ static int hevc_frame_start(HEVCContext *s)
+     else
+         s->ref->frame->flags &= ~AV_FRAME_FLAG_KEY;
+ 
+-    s->ref->needs_fg = (s->sei.common.film_grain_characteristics.present ||
+-                        s->sei.common.aom_film_grain.enable) &&
++    s->ref->needs_fg = s->sei.common.film_grain_characteristics.present &&
+         !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN) &&
+         !s->avctx->hwaccel;
+ 
+     if (s->ref->needs_fg &&
+-        s->sei.common.film_grain_characteristics.present &&
+         !ff_h274_film_grain_params_supported(s->sei.common.film_grain_characteristics.model_id,
+                                              s->ref->frame->format)) {
+         av_log_once(s->avctx, AV_LOG_WARNING, AV_LOG_DEBUG, &s->film_grain_warning_shown,
+@@ -2939,24 +2935,14 @@ fail:
+ static int hevc_frame_end(HEVCContext *s)
+ {
+     HEVCFrame *out = s->ref;
+-    const AVFilmGrainParams *fgp;
++    const AVFrameSideData *sd;
+     av_unused int ret;
+ 
+     if (out->needs_fg) {
+-        av_assert0(out->frame_grain->buf[0]);
+-        fgp = av_film_grain_params_select(out->frame);
+-        switch (fgp->type) {
+-        case AV_FILM_GRAIN_PARAMS_NONE:
+-            av_assert0(0);
+-            return AVERROR_BUG;
+-        case AV_FILM_GRAIN_PARAMS_H274:
+-            ret = ff_h274_apply_film_grain(out->frame_grain, out->frame,
+-                                           &s->h274db, fgp);
+-            break;
+-        case AV_FILM_GRAIN_PARAMS_AV1:
+-            ret = ff_aom_apply_film_grain(out->frame_grain, out->frame, fgp);
+-            break;
+-        }
++        sd = av_frame_get_side_data(out->frame, AV_FRAME_DATA_FILM_GRAIN_PARAMS);
++        av_assert0(out->frame_grain->buf[0] && sd);
++        ret = ff_h274_apply_film_grain(out->frame_grain, out->frame, &s->h274db,
++                                       (AVFilmGrainParams *) sd->data);
+         av_assert1(ret >= 0);
+     }
+ 
+@@ -3605,7 +3591,6 @@ static int hevc_update_thread_context(AVCodecContext *dst,
+     s->sei.common.alternative_transfer = s0->sei.common.alternative_transfer;
+     s->sei.common.mastering_display    = s0->sei.common.mastering_display;
+     s->sei.common.content_light        = s0->sei.common.content_light;
+-    s->sei.common.aom_film_grain       = s0->sei.common.aom_film_grain;
+ 
+     ret = export_stream_params_from_sei(s);
+     if (ret < 0)

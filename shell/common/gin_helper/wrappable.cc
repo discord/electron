@@ -51,6 +51,14 @@ v8::Local<v8::Object> WrappableBase::GetWrapper() const {
     return {};
 }
 
+v8::MaybeLocal<v8::Object> WrappableBase::GetWrapper(
+    v8::Isolate* isolate) const {
+  if (!wrapper_.IsEmpty())
+    return {v8::Local<v8::Object>::New(isolate, wrapper_)};
+  else
+    return {};
+}
+
 void WrappableBase::InitWithArgs(const gin::Arguments* const args) {
   v8::Local<v8::Object> holder;
   args->GetHolder(&holder);

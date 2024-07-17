@@ -545,14 +545,14 @@ void NativeWindowViews::SetContentView(views::View* view) {
     set_content_view(nullptr);
     focused_view_ = nullptr;
     if (old_view->owned_by_client())
-      root_view_.GetMainView()->RemoveChildView(old_view);
+      root_view_.RemoveChildView(old_view);
     else
-      root_view_.GetMainView()->RemoveChildViewT(old_view);
+      root_view_.RemoveChildViewT(old_view);
   }
   set_content_view(view);
   focused_view_ = view;
-  root_view_.GetMainView()->AddChildViewRaw(content_view());
-  FlushPendingRootLayout(root_view_.GetMainView());
+  root_view_.AddChildViewRaw(content_view());
+  FlushPendingRootLayout(&root_view_);
 }
 
 void NativeWindowViews::Close() {
@@ -1932,7 +1932,7 @@ bool NativeWindowViews::CanMinimize() const {
 }
 
 views::View* NativeWindowViews::GetContentsView() {
-  return root_view_.GetMainView();
+  return &root_view_;
 }
 
 bool NativeWindowViews::ShouldDescendIntoChildForEventHandling(
@@ -1942,7 +1942,7 @@ bool NativeWindowViews::ShouldDescendIntoChildForEventHandling(
 }
 
 views::ClientView* NativeWindowViews::CreateClientView(views::Widget* widget) {
-  return new NativeWindowClientView{widget, &root_view_, this};
+  return new NativeWindowClientView{widget, GetContentsView(), this};
 }
 
 std::unique_ptr<views::FrameView> NativeWindowViews::CreateFrameView(

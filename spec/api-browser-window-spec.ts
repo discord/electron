@@ -52,7 +52,7 @@ const isScaleFactorRounding = () => {
 
 const expectBoundsEqual = (actual: any, expected: any) => {
   if (!isScaleFactorRounding()) {
-    expect(actual).to.deep.equal(expected);
+    expect(expected).to.deep.equal(actual);
   } else if (Array.isArray(actual)) {
     expect(actual[0]).to.be.closeTo(expected[0], 1);
     expect(actual[1]).to.be.closeTo(expected[1], 1);

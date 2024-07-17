@@ -9,11 +9,17 @@
 #include "components/input/native_web_keyboard_event.h"
 #include "shell/browser/native_window.h"
 #include "shell/browser/ui/views/menu_bar.h"
-#include "ui/views/layout/box_layout.h"
 
 namespace electron {
 
 namespace {
+
+// The menu bar height in pixels.
+#if BUILDFLAG(IS_WIN)
+const int kMenuBarHeight = 20;
+#else
+const int kMenuBarHeight = 25;
+#endif
 
 bool IsAltKey(const input::NativeWebKeyboardEvent& event) {
   return event.windows_key_code == ui::VKEY_MENU;
@@ -32,15 +38,8 @@ bool IsAltModifier(const input::NativeWebKeyboardEvent& event) {
 }  // namespace
 
 RootView::RootView(NativeWindow* window)
-    : window_{raw_ref<NativeWindow>::from_ptr(window)},
-      main_view_{raw_ref<views::View>::from_ptr(
-          AddChildView(std::make_unique<views::View>()))} {
+    : window_{raw_ref<NativeWindow>::from_ptr(window)} {
   set_owned_by_client();
-  views::BoxLayout* layout =
-      SetLayoutManager(std::make_unique<views::BoxLayout>(
-          views::BoxLayout::Orientation::kVertical));
-  main_view_->SetUseDefaultFillLayout(true);
-  layout->SetFlexForView(&main_view_.get(), 1);
 }
 
 RootView::~RootView() = default;
@@ -77,7 +76,7 @@ bool RootView::HasMenu() const {
 }
 
 int RootView::GetMenuBarHeight() const {
-  return menu_bar_ ? menu_bar_->GetPreferredSize().height() : 0;
+  return kMenuBarHeight;
 }
 
 void RootView::SetAutoHideMenuBar(bool auto_hide) {
@@ -90,8 +89,10 @@ void RootView::SetMenuBarVisibility(bool visible) {
 
   menu_bar_visible_ = visible;
   if (visible) {
-    AddChildViewAt(menu_bar_.get(), 0);
+    DCHECK_EQ(children().size(), 1ul);
+    AddChildView(menu_bar_.get());
   } else {
+    DCHECK_EQ(children().size(), 2ul);
     RemoveChildView(menu_bar_.get());
   }
 
@@ -162,6 +163,21 @@ void RootView::RestoreFocus() {
 
 void RootView::ResetAltState() {
   menu_bar_alt_pressed_ = false;
+}
+
+void RootView::Layout(PassKey) {
+  if (!window_->content_view())  // Not ready yet.
+    return;
+
+  const auto menu_bar_bounds =
+      menu_bar_visible_ ? gfx::Rect(0, 0, size().width(), kMenuBarHeight)
+                        : gfx::Rect();
+  if (menu_bar_)
+    menu_bar_->SetBoundsRect(menu_bar_bounds);
+
+  window_->content_view()->SetBoundsRect(
+      gfx::Rect(0, menu_bar_visible_ ? menu_bar_bounds.bottom() : 0,
+                size().width(), size().height() - menu_bar_bounds.height()));
 }
 
 gfx::Size RootView::GetMinimumSize() const {

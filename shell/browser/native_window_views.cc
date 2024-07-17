@@ -479,12 +479,12 @@ void NativeWindowViews::SetGTKDarkThemeEnabled(bool use_dark_theme) {
 
 void NativeWindowViews::SetContentView(views::View* view) {
   if (content_view()) {
-    root_view_.GetMainView()->RemoveChildView(content_view());
+    root_view_.RemoveChildView(content_view());
   }
   set_content_view(view);
   focused_view_ = view;
-  root_view_.GetMainView()->AddChildView(content_view());
-  root_view_.GetMainView()->DeprecatedLayoutImmediately();
+  root_view_.AddChildView(content_view());
+  root_view_.DeprecatedLayoutImmediately();
 }
 
 void NativeWindowViews::Close() {
@@ -1771,7 +1771,7 @@ std::u16string NativeWindowViews::GetWindowTitle() const {
 }
 
 views::View* NativeWindowViews::GetContentsView() {
-  return root_view_.GetMainView();
+  return &root_view_;
 }
 
 bool NativeWindowViews::ShouldDescendIntoChildForEventHandling(
@@ -1781,7 +1781,7 @@ bool NativeWindowViews::ShouldDescendIntoChildForEventHandling(
 }
 
 views::ClientView* NativeWindowViews::CreateClientView(views::Widget* widget) {
-  return new NativeWindowClientView{widget, &root_view_, this};
+  return new NativeWindowClientView{widget, GetContentsView(), this};
 }
 
 std::unique_ptr<views::NonClientFrameView>

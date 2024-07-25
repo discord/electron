@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordap.com>
+Date: Wed, 24 Jul 2024 22:20:55 -0700
+Subject: fix: fix unknown case with a double-call to OnRefreshComplete
+
+
+diff --git a/chrome/browser/media/webrtc/desktop_media_list_base.cc b/chrome/browser/media/webrtc/desktop_media_list_base.cc
+index f95b2230135dbcd6b19a31215d4f10be3481148c..98e4119ae6db535931718e0689e2c56caefa88fa 100644
+--- a/chrome/browser/media/webrtc/desktop_media_list_base.cc
++++ b/chrome/browser/media/webrtc/desktop_media_list_base.cc
+@@ -231,8 +231,10 @@ uint32_t DesktopMediaListBase::GetImageHash(const gfx::Image& image) {
+ 
+ void DesktopMediaListBase::OnRefreshComplete() {
+   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+-  DCHECK(refresh_callback_);
+-  std::move(refresh_callback_).Run();
++  // Hack: Avoid calling if the callback is null in rare cases
++  if (!refresh_callback_.is_null()) {
++    std::move(refresh_callback_).Run();
++  }
+ }
+ 
+ void DesktopMediaListBase::ScheduleNextRefresh() {

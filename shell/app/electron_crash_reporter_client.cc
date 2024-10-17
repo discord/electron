@@ -29,6 +29,7 @@
 #endif
 
 #if BUILDFLAG(IS_WIN)
+#include <windows.h>
 #include "base/strings/string_util_win.h"
 #endif
 
@@ -131,6 +132,27 @@ void ElectronCrashReporterClient::GetProductNameAndVersion(
     std::wstring* channel_name) {
   *product_name = base::UTF8ToWide(ELECTRON_PRODUCT_NAME);
   *version = base::UTF8ToWide(ELECTRON_VERSION_STRING);
+}
+
+std::wstring ElectronCrashReporterClient::GetWerRuntimeExceptionModule() {
+  // Taken from: chrome/app/chrome_crash_reporter_client_win.cc
+
+  wchar_t fileBuf[MAX_PATH];
+  DWORD len = GetModuleFileName(nullptr, fileBuf, MAX_PATH);
+  // On error return an empty path to indicate than a module is not to be
+  // registered. This is harmless.
+  if (len == 0 || len == MAX_PATH)
+    return std::wstring();
+
+  wchar_t dir[MAX_PATH];
+  wchar_t* file_start = nullptr;
+  DWORD dir_len = GetFullPathName(fileBuf, MAX_PATH, dir, &file_start);
+  if (dir_len == 0 || dir_len > len || !file_start)
+    return std::wstring();
+
+  // file_start points to the start of the filename in the dir buffer.
+  const wchar_t kWerDll[] = L"discord_wer.dll";
+  return std::wstring(dir, file_start).append(kWerDll);
 }
 #endif
 

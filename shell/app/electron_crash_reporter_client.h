@@ -47,6 +47,8 @@ class ElectronCrashReporterClient : public crash_reporter::CrashReporterClient {
                                 std::wstring* version,
                                 std::wstring* special_build,
                                 std::wstring* channel_name) override;
+
+  std::wstring GetWerRuntimeExceptionModule() override;
 #endif
 
 #if BUILDFLAG(IS_WIN)

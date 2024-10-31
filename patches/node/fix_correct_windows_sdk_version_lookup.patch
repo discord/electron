@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Thu, 31 Oct 2024 10:20:34 -0700
+Subject: fix: Correct Windows SDK version lookup
+
+Ignore the explicit version set in the registry (removing the SDK can leave this version present).
+Only rely on the versioned folders within the SDK include/%version% directories, and allow those that are not empty.
+
+diff --git a/tools/gyp/pylib/gyp/generator/msvs.py b/tools/gyp/pylib/gyp/generator/msvs.py
+index 42bee33d9b63d81d00bb8b41192e1b4fa6e83c94..5fd9083b784c35d537e7b73c1624dc1b2b626394 100644
+--- a/tools/gyp/pylib/gyp/generator/msvs.py
++++ b/tools/gyp/pylib/gyp/generator/msvs.py
+@@ -341,10 +341,10 @@ def _ConfigWindowsTargetPlatformVersion(config_data, version):
+                     x
+                     for x in (
+                         os.listdir(expected_sdk_dir)
+-                        if os.path.isdir(expected_sdk_dir)
++                        if os.path.isdir(expected_sdk_dir) and len(os.listdir(expected_sdk_dir)) > 0
+                         else []
+                     )
+-                    if x.startswith(version)
++                    #if x.startswith(version)
+                 ),
+                 reverse=True,
+             )

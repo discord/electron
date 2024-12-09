@@ -19,7 +19,7 @@ index f3cc514424cfefe3931f52aa8dd7935a55bf3b1f..807ae41dbf250a85eb13d4fb16d5a83b
  OBJS-$(CONFIG_HEVC_CUVID_DECODER)      += cuviddec.o
  OBJS-$(CONFIG_HEVC_MEDIACODEC_DECODER) += mediacodecdec.o
 diff --git a/libavcodec/hevcdec.c b/libavcodec/hevcdec.c
-index 890666cbae950b320b66bd958a22da619acef243..816f20f0d1bec2d352fade6eea8789011ca0d9c7 100644
+index b337637f65a8ad6eb1d2abf90c20ac3cafad71ce..00cb4ce0a82d0aa51aebeb2ce464b1e9d248c21f 100644
 --- a/libavcodec/hevcdec.c
 +++ b/libavcodec/hevcdec.c
 @@ -36,7 +36,6 @@
@@ -30,32 +30,39 @@ index 890666cbae950b320b66bd958a22da619acef243..816f20f0d1bec2d352fade6eea878901
  #include "bswapdsp.h"
  #include "cabac_functions.h"
  #include "codec_internal.h"
-@@ -390,8 +389,7 @@ static int export_stream_params_from_sei(HEVCContext *s)
+@@ -390,10 +389,8 @@ static int export_stream_params_from_sei(HEVCContext *s)
          avctx->color_trc = s->sei.common.alternative_transfer.preferred_transfer_characteristics;
      }
  
--    if (s->sei.common.film_grain_characteristics.present ||
--        s->sei.common.aom_film_grain.enable)
-+    if (s->sei.common.film_grain_characteristics.present)
-         avctx->properties |= FF_CODEC_PROPERTY_FILM_GRAIN;
+-    if ((s->sei.common.film_grain_characteristics &&
+-         s->sei.common.film_grain_characteristics->present) ||
+-        (s->sei.common.aom_film_grain &&
+-         s->sei.common.aom_film_grain->enable)) {
++    if (s->sei.common.film_grain_characteristics &&
++         s->sei.common.film_grain_characteristics->present) {
+       avctx->properties |= FF_CODEC_PROPERTY_FILM_GRAIN;
+     }
  
-     return 0;
-@@ -2888,13 +2886,11 @@ static int hevc_frame_start(HEVCContext *s)
-     else
+@@ -2892,16 +2889,13 @@ static int hevc_frame_start(HEVCContext *s)
          s->ref->frame->flags &= ~AV_FRAME_FLAG_KEY;
  
--    s->ref->needs_fg = (s->sei.common.film_grain_characteristics.present ||
--                        s->sei.common.aom_film_grain.enable) &&
-+    s->ref->needs_fg = s->sei.common.film_grain_characteristics.present &&
+     s->ref->needs_fg =
+-        ((s->sei.common.film_grain_characteristics &&
+-          s->sei.common.film_grain_characteristics->present) ||
+-         (s->sei.common.aom_film_grain &&
+-          s->sei.common.aom_film_grain->enable)) &&
++        (s->sei.common.film_grain_characteristics &&
++          s->sei.common.film_grain_characteristics->present) &&
          !(s->avctx->export_side_data & AV_CODEC_EXPORT_DATA_FILM_GRAIN) &&
          !s->avctx->hwaccel;
  
      if (s->ref->needs_fg &&
--        s->sei.common.film_grain_characteristics.present &&
-         !ff_h274_film_grain_params_supported(s->sei.common.film_grain_characteristics.model_id,
-                                              s->ref->frame->format)) {
-         av_log_once(s->avctx, AV_LOG_WARNING, AV_LOG_DEBUG, &s->film_grain_warning_shown,
-@@ -2939,24 +2935,14 @@ fail:
+          s->sei.common.film_grain_characteristics &&
+-             s->sei.common.film_grain_characteristics->present &&
+              !ff_h274_film_grain_params_supported(
+                  s->sei.common.film_grain_characteristics->model_id,
+                  s->ref->frame->format)) {
+@@ -2948,24 +2942,14 @@ fail:
  static int hevc_frame_end(HEVCContext *s)
  {
      HEVCFrame *out = s->ref;
@@ -85,7 +92,7 @@ index 890666cbae950b320b66bd958a22da619acef243..816f20f0d1bec2d352fade6eea878901
          av_assert1(ret >= 0);
      }
  
-@@ -3605,7 +3591,6 @@ static int hevc_update_thread_context(AVCodecContext *dst,
+@@ -3614,7 +3598,6 @@ static int hevc_update_thread_context(AVCodecContext *dst,
      s->sei.common.alternative_transfer = s0->sei.common.alternative_transfer;
      s->sei.common.mastering_display    = s0->sei.common.mastering_display;
      s->sei.common.content_light        = s0->sei.common.content_light;

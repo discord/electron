@@ -1212,10 +1212,10 @@ index 5f9f29f1fab1a2556d8f55f690406c6af72b2ef2..00000000000000000000000000000000
 -    return 0;
 -}
 diff --git a/libavcodec/h2645_sei.c b/libavcodec/h2645_sei.c
-index 1deb76c765b2ec96a665f0c1463b09c936d901b4..70beead95d329ae37c4d372b84e3535f556283d0 100644
+index d1ae3217cc3e3c416205139c42c17a7ce71e8e28..7ed0061b0777deac7abb2f36fab062d9a238d1fa 100644
 --- a/libavcodec/h2645_sei.c
 +++ b/libavcodec/h2645_sei.c
-@@ -211,24 +211,6 @@ static int decode_registered_user_data(H2645SEI *h, GetByteContext *gb,
+@@ -211,29 +211,6 @@ static int decode_registered_user_data(H2645SEI *h, GetByteContext *gb,
          }
          break;
      }
@@ -1231,7 +1231,12 @@ index 1deb76c765b2ec96a665f0c1463b09c936d901b4..70beead95d329ae37c4d372b84e3535f
 -
 -        provider_oriented_code = bytestream2_get_byteu(gb);
 -        if (provider_oriented_code == aom_grain_provider_oriented_code) {
--            return ff_aom_parse_film_grain_sets(&h->aom_film_grain,
+-            if (!h->aom_film_grain) {
+-                h->aom_film_grain = av_mallocz(sizeof(*h->aom_film_grain));
+-                if (!h->aom_film_grain)
+-                    return AVERROR(ENOMEM);
+-            }
+-            return ff_aom_parse_film_grain_sets(h->aom_film_grain,
 -                                                gb->buffer,
 -                                                bytestream2_get_bytes_left(gb));
 -        }
@@ -1240,15 +1245,13 @@ index 1deb76c765b2ec96a665f0c1463b09c936d901b4..70beead95d329ae37c4d372b84e3535f
      unsupported_provider_code:
  #endif
      default:
-@@ -846,11 +828,84 @@ FF_ENABLE_DEPRECATION_WARNINGS
+@@ -856,13 +833,84 @@ FF_ENABLE_DEPRECATION_WARNINGS
          avctx->properties |= FF_CODEC_PROPERTY_FILM_GRAIN;
      }
  
 -#if CONFIG_HEVC_SEI
--    ret = ff_aom_attach_film_grain_sets(&sei->aom_film_grain, frame);
--    if (ret < 0)
--        return ret;
--#endif
+-    if (sei->aom_film_grain) {
+-        ret = ff_aom_attach_film_grain_sets(sei->aom_film_grain, frame);
 +    if (sei->ambient_viewing_environment.present) {
 +        H2645SEIAmbientViewingEnvironment *env =
 +            &sei->ambient_viewing_environment;
@@ -1272,8 +1275,8 @@ index 1deb76c765b2ec96a665f0c1463b09c936d901b4..70beead95d329ae37c4d372b84e3535f
 +        AVMasteringDisplayMetadata *metadata;
 +
 +        ret = ff_decode_mastering_display_new(avctx, frame, &metadata);
-+        if (ret < 0)
-+            return ret;
+         if (ret < 0)
+             return ret;
 +
 +        if (metadata) {
 +            for (i = 0; i < 3; i++) {
@@ -1326,18 +1329,19 @@ index 1deb76c765b2ec96a665f0c1463b09c936d901b4..70beead95d329ae37c4d372b84e3535f
 +            av_log(avctx, AV_LOG_DEBUG, "MaxCLL=%d, MaxFALL=%d\n",
 +                   metadata->MaxCLL, metadata->MaxFALL);
 +        }
-+    }
+     }
+-#endif
  
      return 0;
  }
-@@ -875,5 +930,4 @@ void ff_h2645_sei_reset(H2645SEI *s)
-     s->ambient_viewing_environment.present = 0;
-     s->mastering_display.present = 0;
+@@ -889,5 +937,4 @@ void ff_h2645_sei_reset(H2645SEI *s)
      s->content_light.present = 0;
--    s->aom_film_grain.enable = 0;
+ 
+     av_freep(&s->film_grain_characteristics);
+-    av_freep(&s->aom_film_grain);
  }
 diff --git a/libavcodec/h2645_sei.h b/libavcodec/h2645_sei.h
-index 488dbcad7e39b5ebe2153a536141b316123f04a3..1b55280c05bf59daf6537e11ddc76f16513b012f 100644
+index 00d57c6f3311c0b8a97b63ad2179fe4299be3d73..aa965ec7aa1834585b1fa3fc1e2dc65d143e0cff 100644
 --- a/libavcodec/h2645_sei.h
 +++ b/libavcodec/h2645_sei.h
 @@ -23,9 +23,7 @@
@@ -1350,11 +1354,11 @@ index 488dbcad7e39b5ebe2153a536141b316123f04a3..1b55280c05bf59daf6537e11ddc76f16
  #include "avcodec.h"
  #include "bytestream.h"
  #include "codec_id.h"
-@@ -134,7 +132,6 @@ typedef struct H2645SEI {
-     H2645SEIAmbientViewingEnvironment ambient_viewing_environment;
-     H2645SEIMasteringDisplay mastering_display;
-     H2645SEIContentLight content_light;
--    AVFilmGrainAFGS1Params aom_film_grain;
+@@ -136,7 +134,6 @@ typedef struct H2645SEI {
+ 
+     // Dynamic allocations due to large size.
+     H2645SEIFilmGrainCharacteristics* film_grain_characteristics;
+-    AVFilmGrainAFGS1Params* aom_film_grain;
  } H2645SEI;
  
  enum {

@@ -371,6 +371,9 @@ namespace electron::api {
 
 namespace {
 
+// Global toggle for disabling draggable regions checks.
+bool g_disable_draggable_regions = false;
+
 constexpr std::string_view CursorTypeToString(
     ui::mojom::CursorType cursor_type) {
   switch (cursor_type) {
@@ -2053,6 +2056,10 @@ void WebContents::DraggableRegionsChanged(
   draggable_region_ = DraggableRegionsToSkRegion(regions);
 }
 
+SkRegion* WebContents::draggable_region() {
+  return g_disable_draggable_regions ? nullptr : draggable_region_.get();
+}
+
 void WebContents::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   EmitNavigationEvent("did-start-navigation", navigation_handle);
@@ -3631,7 +3638,8 @@ void WebContents::OnPaint(const gfx::Rect& dirty_rect,
   }
   if (!overlay_.SendFrame(bitmap.width(), bitmap.height(), bitmap.getPixels(),
                           bitmap.rowBytes() * bitmap.height())) {
-    EmitWithoutEvent("paint", event, dirty_rect, gfx::Image::CreateFrom1xBitmap(bitmap));
+    EmitWithoutEvent("paint", event, dirty_rect,
+                     gfx::Image::CreateFrom1xBitmap(bitmap));
   }
 }
 
@@ -4747,6 +4755,11 @@ std::list<WebContents*> WebContents::GetWebContentsList() {
 
 void WebContents::SetDiscordOverlayProcessID(uint32_t process_id) {
   overlay_.SetProcessId(process_id);
+}
+
+// static
+void WebContents::SetDisableDraggableRegions(bool disable) {
+  g_disable_draggable_regions = disable;
 }
 
 // static

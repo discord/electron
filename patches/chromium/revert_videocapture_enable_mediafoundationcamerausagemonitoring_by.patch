@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 3 Feb 2025 17:04:00 -0800
+Subject: Revert "[VideoCapture] Enable MediaFoundationCameraUsageMonitoring by
+ default"
+
+This reverts commit 97e8a23175eaf5ab7b86915785e2e62a64233f83.
+
+diff --git a/media/capture/capture_switches.cc b/media/capture/capture_switches.cc
+index 88e818b370756ca88b6770f199cfef29e5a62097..e75263ce4981c0396fbc387c5301a6b01cca25f8 100644
+--- a/media/capture/capture_switches.cc
++++ b/media/capture/capture_switches.cc
+@@ -59,7 +59,7 @@ BASE_FEATURE(kWebRtcPipeWireCamera,
+ // Controls monitoring for camera usage by other applications.
+ BASE_FEATURE(kMediaFoundationCameraUsageMonitoring,
+              "MediaFoundationCameraUsageMonitoring",
+-             base::FEATURE_ENABLED_BY_DEFAULT);
++             base::FEATURE_DISABLED_BY_DEFAULT);
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+ }  // namespace features

@@ -1,0 +1,294 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 5 Feb 2025 11:35:24 -0800
+Subject: Build fixes for enable_screen_ai_service=false
+
+
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index d8cf68e953213f309537e74d954d874950ede24a..22740da6d1905b6fe0a2320c548f982754ff9093 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -4352,10 +4352,6 @@ static_library("browser") {
+       "//chrome/browser/metrics/desktop_session_duration",
+       "//chrome/browser/new_tab_page/chrome_colors",
+       "//chrome/browser/policy:path_parser",
+-      "//chrome/browser/screen_ai:prefs",
+-      "//chrome/browser/screen_ai:screen_ai_install_state",
+-      "//chrome/browser/screen_ai:screen_ai_service_router_factory",
+-      "//chrome/browser/screen_ai/public:optical_character_recognizer",
+       "//chrome/browser/search/background",
+       "//chrome/browser/sharing_hub",
+       "//chrome/browser/smart_card",
+@@ -4514,9 +4510,6 @@ static_library("browser") {
+       "//components/webauthn/core/browser",
+       "//components/webauthn/core/browser:passkey_model",
+       "//services/device/public/cpp/hid",
+-      "//services/screen_ai",
+-      "//services/screen_ai/public/cpp:utilities",
+-      "//services/screen_ai/public/mojom",
+       "//third_party/crashpad/crashpad/client:common",
+       "//third_party/zxcvbn-cpp",
+       "//ui/views",
+@@ -4529,6 +4522,18 @@ static_library("browser") {
+       "//ui/webui/resources/cr_components/history_embeddings:mojo_bindings",
+     ]
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "//chrome/browser/screen_ai:prefs",
++        "//chrome/browser/screen_ai:screen_ai_install_state",
++        "//chrome/browser/screen_ai:screen_ai_service_router_factory",
++        "//chrome/browser/screen_ai/public:optical_character_recognizer",
++        "//services/screen_ai",
++        "//services/screen_ai/public/cpp:utilities",
++        "//services/screen_ai/public/mojom",
++      ]
++    }
++
+     #!is_android
+     # Any circular includes must depend on the target
+     # "browser_public_dependencies".
+diff --git a/chrome/browser/accessibility/BUILD.gn b/chrome/browser/accessibility/BUILD.gn
+index 32ba48e50859379e064f4379e7423156748f84b9..0470ad7a1b14a66936fa5b9977543c0e09aa98c9 100644
+--- a/chrome/browser/accessibility/BUILD.gn
++++ b/chrome/browser/accessibility/BUILD.gn
+@@ -2,6 +2,8 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//services/screen_ai/buildflags/features.gni")
++
+ if (!is_android) {
+   source_set("test_support") {
+     testonly = true
+diff --git a/chrome/browser/accessibility/tree_fixing/BUILD.gn b/chrome/browser/accessibility/tree_fixing/BUILD.gn
+index c6606fc1517f165b8a9287862f764bd2c64cf4e9..907fa214891867195d4ff437f20a577a42f03e73 100644
+--- a/chrome/browser/accessibility/tree_fixing/BUILD.gn
++++ b/chrome/browser/accessibility/tree_fixing/BUILD.gn
+@@ -3,6 +3,7 @@
+ # found in the LICENSE file.
+ 
+ import("//build/buildflag_header.gni")
++import("//services/screen_ai/buildflags/features.gni")
+ 
+ assert(!is_android, "AXTreeFixingService does not run on Android.")
+ 
+@@ -64,11 +65,16 @@ source_set("internal") {
+   deps = [
+     "//base",
+     "//chrome/browser/profiles:profile",
+-    "//chrome/browser/screen_ai:screen_ai_service_router_factory",
+     "//components/paint_preview/browser",
+     "//components/paint_preview/common",
+     "//components/paint_preview/public",
+     "//content/public/browser:browser",
+-    "//services/screen_ai/public/mojom:mojom",
+   ]
++
++  if (enable_screen_ai_service) {
++    deps += [
++      "//chrome/browser/screen_ai:screen_ai_service_router_factory",
++      "//services/screen_ai/public/mojom:mojom",
++    ]
++  }
+ }
+diff --git a/chrome/browser/prefs/BUILD.gn b/chrome/browser/prefs/BUILD.gn
+index c7dd6977b7ea60182fbc0569d8ebc166c5db7fa9..9546dbfd10fc17a323d74c020c60b0c19f6648db 100644
+--- a/chrome/browser/prefs/BUILD.gn
++++ b/chrome/browser/prefs/BUILD.gn
+@@ -286,7 +286,6 @@ source_set("impl") {
+   } else {
+     deps += [
+       "//chrome/browser/promos:utils",
+-      "//chrome/browser/screen_ai:prefs",
+       "//chrome/browser/search/background",
+       "//chrome/browser/search_engine_choice",
+       "//chrome/browser/search_engines",
+diff --git a/chrome/browser/profiles/BUILD.gn b/chrome/browser/profiles/BUILD.gn
+index 2c049b715ec0a105c1dbffc9805d00a6ffbc1399..c8b931ab7ea210083017ae3bc40a709557ba8139 100644
+--- a/chrome/browser/profiles/BUILD.gn
++++ b/chrome/browser/profiles/BUILD.gn
+@@ -313,7 +313,6 @@ source_set("profiles_extra_parts_impl") {
+       "//chrome/browser/feedback",
+       "//chrome/browser/hid",
+       "//chrome/browser/media/router/discovery/access_code:access_code_sink_service",
+-      "//chrome/browser/screen_ai:screen_ai_service_router_factory",
+       "//chrome/browser/search",
+       "//chrome/browser/search/background",
+       "//chrome/browser/search_engine_choice",
+@@ -325,6 +324,12 @@ source_set("profiles_extra_parts_impl") {
+       "//chrome/browser/ui/webui/signin",
+       "//chrome/browser/ui/webui/signin:login",
+     ]
++
++    if (enable_screen_ai_service) {
++      deps += [
++        "//chrome/browser/screen_ai:screen_ai_service_router_factory",
++      ]
++    }
+   }
+ 
+   if (is_chromeos) {
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index 8392975cdde4ecc63829cf9ac84d07ac5adca510..15efc0cc186e422791662ccbb98dc82f90b55683 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -1657,8 +1657,6 @@ static_library("ui") {
+       "//chrome/browser/regional_capabilities",
+       "//chrome/browser/safe_browsing",
+       "//chrome/browser/safe_browsing:advanced_protection",
+-      "//chrome/browser/screen_ai:screen_ai_install_state",
+-      "//chrome/browser/screen_ai:screen_ai_service_router_factory",
+       "//chrome/browser/smart_card:smart_card",
+       "//chrome/browser/tab_group_sync:utils",
+       "//chrome/browser/themes",
+@@ -1833,6 +1831,13 @@ static_library("ui") {
+       "//ui/webui/resources/js/metrics_reporter:mojo_bindings",
+     ]
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "//chrome/browser/screen_ai:screen_ai_install_state",
++        "//chrome/browser/screen_ai:screen_ai_service_router_factory",
++      ]
++    }
++
+     # Non-android public_deps for "ui" target.
+     public_deps += [
+       "//chrome/browser/importer",
+diff --git a/chrome/renderer/BUILD.gn b/chrome/renderer/BUILD.gn
+index e4537f6dcdfe70125649c1a83a9f7eef5dcb4d90..b2143f713d5fc8c5571aca1900664f4d8f7d7652 100644
+--- a/chrome/renderer/BUILD.gn
++++ b/chrome/renderer/BUILD.gn
+@@ -398,12 +398,17 @@ static_library("renderer") {
+       "//chrome/renderer/actor",
+       "//components/crx_file",
+       "//components/trusted_vault",
+-      "//services/screen_ai/buildflags",
+-      "//services/screen_ai/public/mojom",
+       "//services/strings",
+       "//third_party/re2:re2",
+     ]
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "//services/screen_ai/buildflags",
++        "//services/screen_ai/public/mojom",
++      ]
++    }
++
+     if (build_with_tflite_lib) {
+       sources += [
+         "accessibility/phrase_segmentation/base_phrase_segmenter.cc",
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index 5905f62c8b516483026ee95a3dea4cda5f1161b1..47245e62f5fda6650e2ec026bd05d08bd57c7172 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -2275,9 +2275,6 @@ if (!is_android) {
+       "//chrome/browser/resource_coordinator:tab_manager_features",
+       "//chrome/browser/safe_browsing:advanced_protection",
+       "//chrome/browser/safe_browsing:verdict_cache_manager_factory",
+-      "//chrome/browser/screen_ai:screen_ai_install_state",
+-      "//chrome/browser/screen_ai:screen_ai_service_router_factory",
+-      "//chrome/browser/screen_ai/public:test_support",
+       "//chrome/browser/search",
+       "//chrome/browser/search_engines",
+       "//chrome/browser/segmentation_platform:test_utils",
+@@ -2699,9 +2696,6 @@ if (!is_android) {
+       "//services/network/public/proto:sct_audit_report_proto",
+       "//services/preferences/public/cpp",
+       "//services/preferences/public/cpp/tracked",
+-      "//services/screen_ai:test_support",
+-      "//services/screen_ai/public/cpp:utilities",
+-      "//services/screen_ai/public/mojom",
+       "//services/service_manager/public/cpp",
+       "//services/strings",
+       "//services/test/echo/public/mojom",
+@@ -3850,6 +3844,14 @@ if (!is_android) {
+       ]
+     }
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "//chrome/browser/screen_ai:screen_ai_install_state",
++        "//chrome/browser/screen_ai:screen_ai_service_router_factory",
++        "//chrome/browser/screen_ai/public:test_support",
++      ]
++    }
++
+     if (enable_pdf) {
+       sources += [
+         "../browser/accessibility/pdf_ocr_controller_browsertest.cc",
+@@ -8272,7 +8274,6 @@ test("unit_tests") {
+     #
+     # TODO(crbug.com/417513088): Maybe merge with the non-android `deps` declaration above?
+     deps += [
+-      "../browser/screen_ai:screen_ai_install_state",
+       "//chrome/browser/apps:icon_standardizer",
+       "//chrome/browser/apps/app_service",
+       "//chrome/browser/apps/app_service:app_registry_cache_waiter",
+@@ -8305,7 +8306,6 @@ test("unit_tests") {
+       "//chrome/browser/profile_resetter:fake_profile_resetter",
+       "//chrome/browser/resource_coordinator:tab_manager_features",
+       "//chrome/browser/resources/new_tab_page_instant:resources_grit",
+-      "//chrome/browser/screen_ai:unit_tests",
+       "//chrome/browser/search/background",
+       "//chrome/browser/search/background:constants",
+       "//chrome/browser/search_engine_choice:unit_tests",
+@@ -8420,7 +8420,6 @@ test("unit_tests") {
+       "//components/webapps/browser",
+       "//services/metrics/public/cpp:ukm_builders",
+       "//services/network:test_support",
+-      "//services/screen_ai:test_support",
+       "//third_party/crashpad/crashpad/util",
+       "//third_party/libaddressinput",
+       "//third_party/lzma_sdk/google:unit_tests",
+@@ -8441,6 +8440,14 @@ test("unit_tests") {
+       deps += [ "//services/video_effects/test:test_support" ]
+     }
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "../browser/screen_ai:screen_ai_install_state",
++        "//services/screen_ai:test_support",
++        "//chrome/browser/screen_ai:unit_tests",
++      ]
++    }
++
+     data += [ "//chromeos/ash/experiences/arc/test/data/icons/" ]
+ 
+     if (include_js2gtest_tests && is_chromeos) {
+@@ -11829,6 +11836,14 @@ if (!is_android && !is_chromeos_device) {
+       sources += [ "../browser/window_management/window_management_printing_interactive_uitest.cc" ]
+     }
+ 
++    if (enable_screen_ai_service) {
++      deps += [
++        "//services/screen_ai:test_support",
++        "//services/screen_ai/public/cpp:utilities",
++        "//services/screen_ai/public/mojom",
++      ]
++    }
++
+     if (enable_glic) {
+       sources += [ "../browser/contextual_cueing/contextual_cueing_helper_interactive_uitest.cc" ]
+ 
+diff --git a/chrome/utility/BUILD.gn b/chrome/utility/BUILD.gn
+index 82dae6be5f99713899b8729b3de337a599ffb1fa..3faf84e81207dd38c105b55f4c2a041e82944607 100644
+--- a/chrome/utility/BUILD.gn
++++ b/chrome/utility/BUILD.gn
+@@ -145,8 +145,13 @@ static_library("utility") {
+       "//components/autofill/core/common",
+       "//components/user_data_importer/common",
+       "//services/proxy_resolver:lib",
+-      "//services/screen_ai",
+     ]
++
++    if (enable_screen_ai_service) {
++      deps += [
++        "//services/screen_ai",
++      ]
++    }
+   }
+ 
+   if (enable_extensions) {

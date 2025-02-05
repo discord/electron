@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 5 Feb 2025 15:50:36 -0800
+Subject: Fix building on desktop with enable_message_center=false
+
+
+diff --git a/ui/message_center/dummy_message_center.cc b/ui/message_center/dummy_message_center.cc
+index cb3018686b762d6347195c56d293a8716e6b7954..8c33f037c84c940936830548f9d278169cff0438 100644
+--- a/ui/message_center/dummy_message_center.cc
++++ b/ui/message_center/dummy_message_center.cc
+@@ -9,9 +9,11 @@
+ // and link with Android implementations of Chrome which do not have
+ // notification systems yet. This is to avoid spreading compile-time flags
+ // everywhere in the code.
++/*
+ #if !(BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA))
+ #error This file should only be used in Android and Fuchsia.
+ #endif
++*/
+ 
+ namespace message_center {
+ 

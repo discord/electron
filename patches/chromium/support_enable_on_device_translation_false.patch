@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 5 Feb 2025 12:14:13 -0800
+Subject: Support enable_on_device_translation=false
+
+
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index cfd6c6248e2c7e60701087a8a0ea0dc1051e6991..9725574d07dd70b80a0d123c056468f8339c8182 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -16,6 +16,7 @@ import("//components/lens/features.gni")
+ import("//components/metrics/structured/buildflags/buildflags.gni")
+ import("//components/nacl/features.gni")
+ import("//components/offline_pages/buildflags/features.gni")
++import("//components/services/on_device_translation/buildflags/features.gni")
+ import("//crypto/features.gni")
+ import("//device/vr/buildflags/buildflags.gni")
+ import("//extensions/buildflags/buildflags.gni")
+@@ -3101,12 +3102,17 @@ static_library("ui") {
+ 
+     deps += [
+       "//chrome/app:generated_resources",
+-      "//chrome/browser/on_device_translation:language_pack_util",
+       "//chrome/browser/shortcuts",
+       "//components/capture_mode",
+       "//services/audio/public/mojom",
+       "//services/video_capture/public/mojom",
+     ]
++
++    if (enable_on_device_translation) {
++      deps += [
++        "//chrome/browser/on_device_translation:language_pack_util",
++      ]
++    }
+   }
+ 
+   if (is_win || is_mac || is_linux || is_chromeos) {

@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 5 Feb 2025 12:14:13 -0800
+Subject: Support enable_on_device_translation=false
+
+
+diff --git a/chrome/browser/ui/BUILD.gn b/chrome/browser/ui/BUILD.gn
+index 15efc0cc186e422791662ccbb98dc82f90b55683..13ff3141e1ad3983d660fed4bf57a8906836f94c 100644
+--- a/chrome/browser/ui/BUILD.gn
++++ b/chrome/browser/ui/BUILD.gn
+@@ -17,6 +17,7 @@ import("//components/metrics/structured/buildflags/buildflags.gni")
+ import("//components/nacl/features.gni")
+ import("//components/offline_pages/buildflags/features.gni")
+ import("//content/browser/devtools/features.gni")
++import("//components/services/on_device_translation/buildflags/features.gni")
+ import("//crypto/features.gni")
+ import("//device/vr/buildflags/buildflags.gni")
+ import("//extensions/buildflags/buildflags.gni")
+@@ -3145,8 +3146,6 @@ static_library("ui") {
+ 
+     deps += [
+       "//chrome/app:generated_resources",
+-      "//chrome/browser/on_device_translation",
+-      "//chrome/browser/on_device_translation:language_pack_util",
+       "//chrome/browser/profiles",
+       "//chrome/browser/shortcuts",
+       "//chrome/browser/ui/shortcuts",
+@@ -3163,6 +3162,13 @@ static_library("ui") {
+       "//services/video_effects/buildflags",
+     ]
+ 
++    if (enable_on_device_translation) {
++      deps += [
++        "//chrome/browser/on_device_translation",
++        "//chrome/browser/on_device_translation:language_pack_util",
++      ]
++    }
++
+     # Any circular includes must depend on the target "//chrome/browser:browser_public_dependencies".
+     # Non-android and non-chromeos-ash circular deps.
+     allow_circular_includes_from += [

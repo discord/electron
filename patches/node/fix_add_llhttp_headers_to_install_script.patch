@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Fri, 21 Feb 2025 09:29:08 -0800
+Subject: fix: add llhttp headers to install script
+
+Since node exports llhttp symbols now, allow the headers to be exported
+so they can be used.
+
+diff --git a/tools/install.py b/tools/install.py
+index 7232be863d517c8445059a57c5938c2cbdeaf81b..5db2106b9ab751d0f83e9baa0810fe58e415adf7 100755
+--- a/tools/install.py
++++ b/tools/install.py
+@@ -343,6 +343,8 @@ def headers(options, action):
+ 
+   subdir_files(options, os.path.join(options.v8_dir, 'include'), 'include/node/', wanted_v8_headers)
+ 
++  subdir_files(options, 'deps/llhttp/include', 'include/node/', action)
++
+   if 'false' == options.variables.get('node_shared_libuv'):
+     subdir_files(options, 'deps/uv/include', 'include/node/', action)
+ 

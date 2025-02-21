@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Fri, 21 Feb 2025 15:03:22 -0800
+Subject: Revert "Engage kVideoEffects sandbox even when ENABLE_VIDEO_EFFECTS
+ is false"
+
+This reverts commit 0ddd21a9ab7657d46974dab334806fa329bf4b50.
+
+Fixes linux build when we set enable_video_effects=false.
+
+diff --git a/content/utility/BUILD.gn b/content/utility/BUILD.gn
+index 2221c3969cd288d0de095f3542656157f54b2914..19e6a528434eae1857ab6c483f68cab92b00763f 100644
+--- a/content/utility/BUILD.gn
++++ b/content/utility/BUILD.gn
+@@ -80,12 +80,11 @@ source_set("utility") {
+     "//url",
+   ]
+ 
+-  if (is_linux) {
+-    deps += [ "//services/video_effects:sandbox_hook" ]
+-  }
+-
+   if (enable_video_effects) {
+     deps += [ "//services/video_effects:service" ]
++    if (is_linux) {
++      deps += [ "//services/video_effects:sandbox_hook" ]
++    }
+   }
+ 
+   # When library CDMs are supported, we support running the CDM in the utility
+diff --git a/content/utility/utility_main.cc b/content/utility/utility_main.cc
+index 653426f580ee4c9a8371c0d8c52277111aa504fb..38f2438009eb095178c60baa2777da5d2bcabb01 100644
+--- a/content/utility/utility_main.cc
++++ b/content/utility/utility_main.cc
+@@ -305,8 +305,10 @@ int UtilityMain(MainFunctionParams parameters) {
+ #endif
+ #if BUILDFLAG(IS_LINUX)
+     case sandbox::mojom::Sandbox::kVideoEffects:
++#if BUILDFLAG(ENABLE_VIDEO_EFFECTS)
+       pre_sandbox_hook =
+           base::BindOnce(&video_effects::VideoEffectsPreSandboxHook);
++#endif  // BUILDFLAG(ENABLE_VIDEO_EFFECTS)
+       break;
+ #endif  // BUILDFLAG(IS_LINUX)
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+diff --git a/services/video_effects/BUILD.gn b/services/video_effects/BUILD.gn
+index 6fc621b1bf0dd2fa890216e56500477be0e8531a..8827a11bc79ba2c3c4a522a606af77fe6e6c2ff6 100644
+--- a/services/video_effects/BUILD.gn
++++ b/services/video_effects/BUILD.gn
+@@ -2,8 +2,12 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//services/video_effects/args.gni")
+ import("//third_party/mediapipe/features.gni")
+ 
++assert(enable_video_effects,
++       "The Video Effects service requires enable_video_effects to be true.")
++
+ source_set("service") {
+   public = [
+     "gpu_channel_host_provider.h",

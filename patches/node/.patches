@@ -46,3 +46,4 @@ fix_cppgc_initializing_twice.patch
 fix_task_starvation_in_inspector_context_test.patch
 fix_expose_readfilesync_override_for_modules.patch
 fix_correct_windows_sdk_version_lookup.patch
+fix_add_llhttp_headers_to_install_script.patch

@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Tue, 25 Feb 2025 14:13:41 -0800
+Subject: fix: windows linking for pd_1
+
+Revert "avutil/mem_internal: Don't use alignas for MSVC"
+
+This reverts commit 6e49b8699657b808b7dc80033f2c3f2d0e029fa3.
+
+diff --git a/libavutil/mem_internal.h b/libavutil/mem_internal.h
+index 2eb4aef5b0056cd0d8e1d8edb9a2f4a1a27a4246..249ec3a642185db84544eb843215b97bbb52a701 100644
+--- a/libavutil/mem_internal.h
++++ b/libavutil/mem_internal.h
+@@ -78,10 +78,6 @@
+     #define DECLARE_ALIGNED_T(n,t,v)    alignas(FFMIN(n, 16)) t v
+     #define DECLARE_ASM_ALIGNED(n,t,v)  alignas(FFMIN(n, 16)) t av_used v
+     #define DECLARE_ASM_CONST(n,t,v)    alignas(FFMIN(n, 16)) static const t av_used v
+-#elif defined(_MSC_VER)
+-    #define DECLARE_ALIGNED_T(n,t,v)    __declspec(align(n)) t v
+-    #define DECLARE_ASM_ALIGNED(n,t,v)  __declspec(align(n)) t v
+-    #define DECLARE_ASM_CONST(n,t,v)    __declspec(align(n)) static const t v
+ #else
+     #define DECLARE_ALIGNED_T(n,t,v)    alignas(n) t v
+     #define DECLARE_ASM_ALIGNED(n,t,v)  alignas(n) t av_used v

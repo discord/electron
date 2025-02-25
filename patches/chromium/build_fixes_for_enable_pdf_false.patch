@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 24 Feb 2025 17:34:22 -0800
+Subject: Build fixes for enable_pdf=false
+
+
+diff --git a/chrome/browser/ui/lens/BUILD.gn b/chrome/browser/ui/lens/BUILD.gn
+index 8f1afc951e58eec427c948d584bc6140b764515f..0dc0a84e820c236caba051f5f6679c450307537b 100644
+--- a/chrome/browser/ui/lens/BUILD.gn
++++ b/chrome/browser/ui/lens/BUILD.gn
+@@ -276,13 +276,17 @@ source_set("interactive_ui_tests") {
+     "//components/feature_engagement/public",
+     "//components/lens:enterprise_policy",
+     "//components/lens:features",
+-    "//components/pdf/browser:browser",
+     "//components/prefs",
+     "//components/search_engines",
+     "//components/user_education/views",
+     "//content/test:test_support",
+     "//testing/gtest",
+   ]
++  if (enable_pdf) {
++    deps += [
++      "//components/pdf/browser:browser",
++    ]
++  }
+ }
+ 
+ source_set("unit_tests") {

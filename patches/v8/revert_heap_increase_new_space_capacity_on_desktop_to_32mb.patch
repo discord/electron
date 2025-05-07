@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 7 May 2025 15:52:55 -0700
+Subject: Revert "[heap] Increase new space capacity on desktop to 32MB"
+
+This reverts commit 789b37d5db1f3b9877ba4afe00a8c95c390ca024.
+
+diff --git a/src/flags/flag-definitions.h b/src/flags/flag-definitions.h
+index 2fa08475e1c34d519f55d0b2e6126559a8810d1f..d54f511078fc481b059b4ca21bf569cc69faaabb 100644
+--- a/src/flags/flag-definitions.h
++++ b/src/flags/flag-definitions.h
+@@ -873,20 +873,9 @@ DEFINE_UINT(minor_ms_max_page_age, 4,
+ DEFINE_UINT(minor_ms_max_new_space_capacity_mb, 72,
+             "max new space capacity in MBs when using MinorMS. When pointer "
+             "compression is disabled, twice the capacity is used.")
+-DEFINE_REQUIREMENT(v8_flags.minor_ms_max_new_space_capacity_mb > 0)
+-
+-#if defined(ANDROID)
+-#define DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB 8
+-#else
+-#define DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB 32
+-#endif
+-DEFINE_UINT(scavenger_max_new_space_capacity_mb,
+-            DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB,
++DEFINE_UINT(scavenger_max_new_space_capacity_mb, 8,
+             "max new space capacity in MBs when using Scavenger. When pointer "
+             "compression is disabled, twice the capacity is used.")
+-DEFINE_REQUIREMENT(v8_flags.scavenger_max_new_space_capacity_mb > 0)
+-#undef DEFAULT_SCAVENGER_MAX_NEW_SPACE_CAPACITY_MB
+-
+ DEFINE_BOOL(trace_page_promotions, false, "trace page promotion decisions")
+ DEFINE_BOOL(trace_pretenuring, false,
+             "trace pretenuring decisions of HAllocate instructions")

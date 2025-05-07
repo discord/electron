@@ -1,3 +1,4 @@
 chore_allow_customizing_microtask_policy_per_context.patch
 deps_add_v8_object_setinternalfieldfornodecore.patch
 enable_--perf-prof_flag_on_macos.patch
+revert_heap_increase_new_space_capacity_on_desktop_to_32mb.patch

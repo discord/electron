@@ -25,9 +25,9 @@ Notification::~Notification() {
     delegate()->NotificationDestroyed();
 }
 
-void Notification::NotificationClicked() {
+void Notification::NotificationClicked(const std::wstring& action) {
   if (delegate())
-    delegate()->NotificationClick();
+    delegate()->NotificationClick(action);
   Destroy();
 }
 

@@ -63,7 +63,7 @@ class Notification {
   virtual void Remove() {}
 
   // Should be called by derived classes.
-  void NotificationClicked();
+  void NotificationClicked(const std::wstring& action = L"");
   void NotificationDismissed(bool should_destroy = true);
   void NotificationFailed(const std::string& error = "");
 

@@ -13,6 +13,9 @@
 #include <shlobj.h>
 #include <wrl\wrappers\corewrappers.h>
 
+#include <windows.ui.notifications.h>
+#include <winstring.h>
+
 #include "base/hash/hash.h"
 #include "base/logging.h"
 #include "base/strings/strcat.h"
@@ -25,6 +28,7 @@
 #include "shell/common/application_info.h"
 #include "ui/base/l10n/l10n_util_win.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "windows_toast_notification.h"
 
 using ABI::Windows::Data::Xml::Dom::IXmlAttribute;
 using ABI::Windows::Data::Xml::Dom::IXmlDocument;
@@ -640,9 +644,21 @@ ToastEventHandler::~ToastEventHandler() = default;
 IFACEMETHODIMP ToastEventHandler::Invoke(
     winui::Notifications::IToastNotification* sender,
     IInspectable* args) {
+  std::wstring action_str;
+  ComPtr<IInspectable> inspectable(args);
+  ComPtr<winui::Notifications::IToastActivatedEventArgs> activated_args;
+  if (SUCCEEDED(inspectable.As(&activated_args))) {
+    HSTRING arg_hstring;
+    if (SUCCEEDED(activated_args->get_Arguments(&arg_hstring))) {
+      uint32_t length;
+      PCWSTR raw_string = WindowsGetStringRawBuffer(arg_hstring, &length);
+      action_str = std::wstring(raw_string, length);
+    }
+  }
+
   content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce(&Notification::NotificationClicked, notification_));
+      FROM_HERE, base::BindOnce(&Notification::NotificationClicked,
+                                notification_, action_str));
   DebugLog("Notification clicked");
 
   return S_OK;

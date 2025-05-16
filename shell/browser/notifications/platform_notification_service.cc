@@ -55,7 +55,7 @@ class NotificationDelegateImpl final : public electron::NotificationDelegate {
   // electron::NotificationDelegate
   void NotificationDestroyed() override { delete this; }
 
-  void NotificationClick() override {
+  void NotificationClick(const std::wstring& action) override {
     content::NotificationEventDispatcher::GetInstance()
         ->DispatchNonPersistentClickEvent(notification_id_, base::DoNothing());
   }

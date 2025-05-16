@@ -140,8 +140,8 @@ void Notification::NotificationAction(int index) {
   Emit("action", index);
 }
 
-void Notification::NotificationClick() {
-  Emit("click");
+void Notification::NotificationClick(const std::u16string& action) {
+  Emit("click", action);
 }
 
 void Notification::NotificationReplied(const std::string& reply) {

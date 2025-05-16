@@ -46,7 +46,7 @@ class Notification final : public gin::Wrappable<Notification>,
 
   // NotificationDelegate:
   void NotificationAction(int index) override;
-  void NotificationClick() override;
+  void NotificationClick(const std::u16string& action = u"") override;
   void NotificationReplied(const std::string& reply) override;
   void NotificationDisplayed() override;
   void NotificationDestroyed() override;

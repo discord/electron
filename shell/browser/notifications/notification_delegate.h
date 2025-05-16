@@ -21,7 +21,7 @@ class NotificationDelegate {
   virtual void NotificationReplied(const std::string& reply) {}
   virtual void NotificationAction(int index) {}
 
-  virtual void NotificationClick() {}
+  virtual void NotificationClick(const std::u16string& action) {}
   virtual void NotificationClosed() {}
   virtual void NotificationDisplayed() {}
 

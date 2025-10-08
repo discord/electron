@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Harris <chris.harris@discordapp.com>
+Date: Wed, 8 Oct 2025 18:34:56 +0000
+Subject: Add cbs files to license exception
+
+
+diff --git a/media/ffmpeg/scripts/generate_gn.py b/media/ffmpeg/scripts/generate_gn.py
+index 92b25eefd68db0cd4160aee4414726ca9184b840..f713615593cd1d06cb8e068f7efa91bd5c5c7f02 100755
+--- a/media/ffmpeg/scripts/generate_gn.py
++++ b/media/ffmpeg/scripts/generate_gn.py
+@@ -736,6 +736,8 @@ LICENSE_EXCEPTIONS = [
+     os.path.join('libavcodec', 'jrevdct.c'),
+     os.path.join('libavcodec', 'jfdctfst.c'),
+     os.path.join('libavcodec', 'jfdctint_template.c'),
++    os.path.join('libavformat', 'cbs.c'),
++    os.path.join('libavformat', 'cbs_av1.c'),
+ ]
+ 
+ # Regex to find lines matching #include "some_dir\some_file.h".

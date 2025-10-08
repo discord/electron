@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Harris <chris.harris@discordapp.com>
+Date: Wed, 8 Oct 2025 18:32:11 +0000
+Subject: Add missing license headers to cbs*
+
+
+diff --git a/libavformat/cbs.c b/libavformat/cbs.c
+index c71220e338c390d9153e9c46dd3eebf6e6d8ab48..3ccb45dd39bd8b193d4a1b3a0817c756c19182e9 100644
+--- a/libavformat/cbs.c
++++ b/libavformat/cbs.c
+@@ -16,5 +16,6 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
++/* discord: Added header that is expected during ffmpeg build */
+ #include "cbs.h"
+ #include "libavcodec/cbs.c"
+diff --git a/libavformat/cbs_av1.c b/libavformat/cbs_av1.c
+index efaed7dfd06eb35bab3504bf4b01a7012eed86d6..6341accbd7f1faba86798a06ff2f35ceb0ad4b92 100644
+--- a/libavformat/cbs_av1.c
++++ b/libavformat/cbs_av1.c
+@@ -16,6 +16,7 @@
+  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+  */
+ 
++/* discord: Added header that is expected during ffmpeg build */
+ #define CBS_AV1_OBU_TILE_LIST 0
+ #define CBS_AV1_OBU_METADATA 0
+ #define CBS_AV1_OBU_PADDING 0

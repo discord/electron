@@ -3,6 +3,7 @@ export const rendererModuleList: ElectronInternal.ModuleEntry[] = [
   { name: 'contextBridge', loader: () => require('./context-bridge') },
   { name: 'crashReporter', loader: () => require('./crash-reporter') },
   { name: 'discord', loader: () => process._linkedBinding('electron_renderer_discord') },
+  { name: 'discordMemoryProfiler', loader: () => process._linkedBinding('electron_renderer_discord_memory_profiler') },
   { name: 'ipcRenderer', loader: () => require('./ipc-renderer') },
   { name: 'sharedTexture', loader: () => require('./shared-texture') },
   { name: 'webFrame', loader: () => require('./web-frame') },

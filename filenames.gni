@@ -77,6 +77,7 @@ filenames = {
 
   lib_sources_win = [
     "discord/overlay_win.cc",
+    "shell/renderer/api/electron_api_discord_memory_profiler.cc",
 
     "shell/browser/api/electron_api_clipboard_win.cc",
     "shell/browser/api/electron_api_power_monitor_win.cc",

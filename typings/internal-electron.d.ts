@@ -74,6 +74,37 @@ declare namespace Electron {
       overrideGlobalPropertyFromIsolatedWorld(keys: string[], getter: Function, setter?: Function): void;
     };
   }
+ 
+  // Windows only
+  interface DiscordMemoryProfiler {
+    enableProfiling?(options: {allocationThresholdKB: number; enableCallStackTracking: boolean}): void;
+    disableProfiling?(): void;
+    getModuleMemoryAllocated?(): {[typeName: string]: {total_allocation_kb?: number; allocation_count?: number}};
+    getTypeNameMemoryCallstacks?(options: {typeName: string}):
+      {
+        type_name: string;
+        total_alloc_kb: number;
+        frame_module_names: string[];
+        frame_module_codeids: string[];
+        frame_rel_offsets: number[];
+      }[];
+    getPartitionAllocatorStats?(): {
+      total_alloc_kb: number;
+      pa_malloc_kb: number;
+      pa_malloc_original_kb: number;
+      pa_blink_array_buffer_kb: number;
+      pa_blink_buffer_kb: number;
+    };
+    enableProfilingV8Heap?(options: {allocationThresholdKB: number; sampleIntervalBytes: number; stackDepth: number}): void;
+    disableProfilingV8Heap?(): void;
+    getProfilerV8MemoryCallstacks?(): {
+      frame_name: string[];
+      frame_script_name: string[];
+      frame_alloc_size: number[];
+      frame_line: number[];
+      frame_col: number[];
+      }[];
+  }
 
   interface ServiceWorkers {
     _getWorkerFromVersionIDIfExists(versionId: number): Electron.ServiceWorkerMain | undefined;

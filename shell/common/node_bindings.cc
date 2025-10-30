@@ -109,6 +109,16 @@
   V(electron_common_shell)            \
   V(electron_common_v8_util)
 
+#if BUILDFLAG(IS_WIN)
+#define ELECTRON_RENDERER_BINDINGS(V)          \
+  V(electron_renderer_web_utils)               \
+  V(electron_renderer_context_bridge)          \
+  V(electron_renderer_crash_reporter)          \
+  V(electron_renderer_discord)                 \
+  V(electron_renderer_discord_memory_profiler) \
+  V(electron_renderer_ipc)                     \
+  V(electron_renderer_web_frame)
+#else
 #define ELECTRON_RENDERER_BINDINGS(V) \
   V(electron_renderer_web_utils)      \
   V(electron_renderer_context_bridge) \
@@ -116,6 +126,7 @@
   V(electron_renderer_discord)        \
   V(electron_renderer_ipc)            \
   V(electron_renderer_web_frame)
+#endif
 
 #define ELECTRON_UTILITY_BINDINGS(V)     \
   V(electron_browser_event_emitter)      \

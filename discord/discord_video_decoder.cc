@@ -22,16 +22,6 @@
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
 
-namespace WTF {
-
-template <>
-struct CrossThreadCopier<::media::VideoDecoderConfig>
-    : public CrossThreadCopierPassThrough<::media::VideoDecoderConfig> {
-  STATIC_ONLY(CrossThreadCopier);
-};
-
-}  // namespace WTF
-
 namespace discord {
 namespace media {
 namespace electron {
@@ -42,13 +32,40 @@ using InitCB = CrossThreadOnceFunction<void(ElectronVideoStatus)>;
 // Arbitrary, matches RTCVideoDecoderAdapter.
 const gfx::Size kDefaultSize(640, 480);
 
-void FinishWait(base::WaitableEvent* waiter,
-                ElectronVideoStatus* result_out,
-                ElectronVideoStatus result) {
-  DVLOG(3) << __func__ << "(" << static_cast<int>(result) << ")";
-  *result_out = result;
-  waiter->Signal();
-}
+// This is kind of an std::promise work-alike since chromium doesn't allow such
+// things
+template <typename T>
+class WaitableSharedObject
+    : public base::RefCountedThreadSafe<WaitableSharedObject<T>> {
+ public:
+  WaitableSharedObject<T>()
+      : event_(base::WaitableEvent::ResetPolicy::MANUAL,
+               base::WaitableEvent::InitialState::NOT_SIGNALED) {}
+
+  void FinishWait(T value) {
+    value_ = std::move(value);
+    event_.Signal();
+  }
+
+  std::optional<T> TimedWait(base::TimeDelta delta) {
+    if (!event_.TimedWait(delta)) {
+      return std::nullopt;
+    }
+    return value_;
+  }
+
+  T Wait() {
+    event_.Wait();
+    return *value_;
+  }
+
+ private:
+  friend class base::RefCountedThreadSafe<WaitableSharedObject<T>>;
+  ~WaitableSharedObject<T>() = default;
+
+  base::WaitableEvent event_;
+  std::optional<T> value_;
+};
 
 void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
                           ::media::ProvideOverlayInfoCB overlay_info_cb) {
@@ -57,13 +74,36 @@ void OnRequestOverlayInfo(bool decoder_requires_restart_for_overlay,
     std::move(overlay_info_cb).Run(::media::OverlayInfo());
 }
 
+struct GpuFactoriesAndTaskRunner {
+  ::media::GpuVideoAcceleratorFactories* gpu_factories{nullptr};
+  scoped_refptr<base::SequencedTaskRunner> media_task_runner{nullptr};
+};
+
+void GetGpuFactoriesOnRenderThread(
+    CrossThreadOnceFunction<void(GpuFactoriesAndTaskRunner)> factoriesCb) {
+  auto* gpu_factories = content::RenderThreadImpl::current()->GetGpuFactories();
+
+  if (!gpu_factories) {
+    std::move(factoriesCb).Run(GpuFactoriesAndTaskRunner{});
+    return;
+  }
+
+  std::move(factoriesCb)
+      .Run(GpuFactoriesAndTaskRunner{
+          .gpu_factories = gpu_factories,
+          .media_task_runner = gpu_factories->GetTaskRunner(),
+      });
+}
 }  // namespace
 
 class DiscordVideoDecoderMediaThread {
  public:
-  DiscordVideoDecoderMediaThread(IElectronVideoFormat* format,
-                                 ElectronVideoSink* video_sink,
-                                 void* user_data);
+  DiscordVideoDecoderMediaThread(
+      ::media::VideoDecoderConfig config_,
+      ElectronVideoSink* video_sink,
+      void* user_data,
+      ::media::GpuVideoAcceleratorFactories* gpu_factories,
+      scoped_refptr<base::SequencedTaskRunner> media_task_runner);
 
   DiscordVideoDecoderMediaThread(const DiscordVideoDecoderMediaThread&) =
       delete;
@@ -78,16 +118,14 @@ class DiscordVideoDecoderMediaThread {
   void DeleteSoon();
 
  private:
-  void InitializeOnMainThread(InitCB init_cb);
-  void InitializeOnMediaThread(const ::media::VideoDecoderConfig& config,
-                               InitCB init_cb);
+  void InitializeOnMediaThread(InitCB init_cb);
   static void OnInitializeDone(base::OnceCallback<void(ElectronVideoStatus)> cb,
                                ::media::DecoderStatus status);
   void DecodeOnMediaThread();
   void OnDecodeDone(::media::DecoderStatus status);
   void OnOutput(scoped_refptr<::media::VideoFrame> frame);
 
-  ElectronPointer<IElectronVideoFormat> format_;
+  ::media::VideoDecoderConfig config_;
   DISCORD_RAW_PTR_EXCLUSION void* user_data_;
   DISCORD_RAW_PTR_EXCLUSION ::media::GpuVideoAcceleratorFactories*
       gpu_factories_{};
@@ -98,19 +136,24 @@ class DiscordVideoDecoderMediaThread {
 
   // shared state
   base::Lock lock_;
-  std::optional<std::string> first_error_{std::nullopt};
-  WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_;
-  ElectronVideoSink* video_sink_;
+  std::optional<std::string> first_error_ GUARDED_BY(lock_){std::nullopt};
+  WTF::Deque<scoped_refptr<::media::DecoderBuffer>> pending_buffers_
+      GUARDED_BY(lock_);
+  ElectronVideoSink* video_sink_ GUARDED_BY(lock_);
   base::WeakPtr<DiscordVideoDecoderMediaThread> weak_this_;
   base::WeakPtrFactory<DiscordVideoDecoderMediaThread> weak_this_factory_{this};
 };
 
 DiscordVideoDecoderMediaThread::DiscordVideoDecoderMediaThread(
-    IElectronVideoFormat* format,
+    ::media::VideoDecoderConfig config,
     ElectronVideoSink* video_sink,
-    void* user_data)
-    : format_(RetainElectronVideoObject(format)),
+    void* user_data,
+    ::media::GpuVideoAcceleratorFactories* gpu_factories,
+    scoped_refptr<base::SequencedTaskRunner> media_task_runner)
+    : config_(std::move(config)),
       user_data_(user_data),
+      gpu_factories_(gpu_factories),
+      media_task_runner_(std::move(media_task_runner)),
       video_sink_(video_sink) {
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
@@ -121,84 +164,36 @@ void DiscordVideoDecoderMediaThread::DeleteSoon() {
     pending_buffers_.clear();
     video_sink_ = nullptr;
   }
-  if (gpu_factories_) {
-    auto taskRunner = gpu_factories_->GetTaskRunner();
-    if (taskRunner) {
-      taskRunner->DeleteSoon(FROM_HERE, this);
-      return;
-    }
-  }
-  delete this;
+  DCHECK(media_task_runner_ != nullptr);
+  media_task_runner_->DeleteSoon(FROM_HERE, this);
 }
 
 ElectronVideoStatus DiscordVideoDecoderMediaThread::Initialize() {
-  ElectronVideoStatus result = ElectronVideoStatus::Failure;
-
   // This is gross, but the non "ForTesting" version of this requires an
   // explicit friend class declaration, and I don't want to modify base just to
   // add us to the whitelist. It might be worth just moving the blocking wait
   // out of this code and into the consumer in Discord.
   base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
-  base::WaitableEvent waiter(base::WaitableEvent::ResetPolicy::MANUAL,
-                             base::WaitableEvent::InitialState::NOT_SIGNALED);
-  auto init_cb =
-      CrossThreadBindOnce(&FinishWait, CrossThreadUnretained(&waiter),
-                          CrossThreadUnretained(&result));
+  auto waiter =
+      base::MakeRefCounted<WaitableSharedObject<ElectronVideoStatus>>();  //
+  InitCB init_cb = CrossThreadBindOnce(
+      &WaitableSharedObject<ElectronVideoStatus>::FinishWait, waiter);
 
   if (blink::PostCrossThreadTask(
-          // TODO(eiz): we have to do the main thread initialization a different
-          // way as this global reference is not going to be around forever.
-          *content::RenderThreadImpl::DeprecatedGetMainTaskRunner().get(),
-          FROM_HERE,
+          *media_task_runner_.get(), FROM_HERE,
           CrossThreadBindOnce(
-              &DiscordVideoDecoderMediaThread::InitializeOnMainThread,
+              &DiscordVideoDecoderMediaThread::InitializeOnMediaThread,
               CrossThreadUnretained(this), std::move(init_cb)))) {
     // TODO(crbug.com/1076817) Remove if a root cause is found.
     // TODO(eiz): ya, I dunno, I stole it from them.
-    if (!waiter.TimedWait(base::Seconds(10)))
-      return ElectronVideoStatus::TimedOut;
+    // TODO(aconverse): Five years laters, it's still there :(
+    auto result = waiter->TimedWait(base::Seconds(10));
+    return result.value_or(ElectronVideoStatus::TimedOut);
   }
-
-  return result;
+  return ElectronVideoStatus::Failure;
 }
 
-void DiscordVideoDecoderMediaThread::InitializeOnMainThread(InitCB init_cb) {
-  gpu_factories_ = content::RenderThreadImpl::current()->GetGpuFactories();
-
-  if (!gpu_factories_) {
-    std::move(init_cb).Run(ElectronVideoStatus::Unsupported);
-    return;
-  }
-
-  media_task_runner_ = gpu_factories_->GetTaskRunner();
-
-  ::media::VideoDecoderConfig config(
-      static_cast<::media::VideoCodec>(format_->GetCodec()),
-      static_cast<::media::VideoCodecProfile>(format_->GetProfile()),
-      ::media::VideoDecoderConfig::AlphaMode::kIsOpaque,
-      ::media::VideoColorSpace(), ::media::kNoTransformation, kDefaultSize,
-      gfx::Rect(kDefaultSize), kDefaultSize, ::media::EmptyExtraData(),
-      ::media::EncryptionScheme::kUnencrypted);
-
-  if (gpu_factories_->IsDecoderConfigSupported(config) ==
-      ::media::GpuVideoAcceleratorFactories::Supported::kFalse) {
-    blink::PostCrossThreadTask(
-        *media_task_runner_.get(), FROM_HERE,
-        CrossThreadBindOnce(std::move(init_cb),
-                            ElectronVideoStatus::Unsupported));
-    return;
-  }
-
-  blink::PostCrossThreadTask(
-      *media_task_runner_.get(), FROM_HERE,
-      CrossThreadBindOnce(
-          &DiscordVideoDecoderMediaThread::InitializeOnMediaThread,
-          CrossThreadUnretained(this), config, std::move(init_cb)));
-}
-
-void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(
-    const ::media::VideoDecoderConfig& config,
-    InitCB init_cb) {
+void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(InitCB init_cb) {
   DVLOG(3) << __func__;
   DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
 
@@ -228,7 +223,7 @@ void DiscordVideoDecoderMediaThread::InitializeOnMediaThread(
           &DiscordVideoDecoderMediaThread::OnOutput, weak_this_));
 
   video_decoder_->Initialize(
-      config, low_delay, cdm_context,
+      config_, low_delay, cdm_context,
       base::BindOnce(&DiscordVideoDecoderMediaThread::OnInitializeDone,
                      ConvertToBaseOnceCallback(std::move(init_cb))),
       output_cb, base::DoNothing());
@@ -354,8 +349,46 @@ ElectronVideoStatus DiscordVideoDecoder::Initialize(
   }
 
   started_initialize_ = true;
-  media_thread_state_ =
-      new DiscordVideoDecoderMediaThread(format, video_sink, user_data);
+
+  // Get gpu_factories and media_task_runner on the main thread before
+  // constructing DiscordVideoDecoderMediaThread
+  base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
+  auto waiter =
+      base::MakeRefCounted<WaitableSharedObject<GpuFactoriesAndTaskRunner>>();
+  CrossThreadOnceFunction<void(GpuFactoriesAndTaskRunner)> factories_cb =
+      CrossThreadBindOnce(
+          &WaitableSharedObject<GpuFactoriesAndTaskRunner>::FinishWait, waiter);
+
+  if (!blink::PostCrossThreadTask(
+          *content::RenderThreadImpl::DeprecatedGetMainTaskRunner().get(),
+          FROM_HERE,
+          CrossThreadBindOnce(GetGpuFactoriesOnRenderThread,
+                              std::move(factories_cb)))) {
+    return ElectronVideoStatus::Failure;
+  }
+  std::optional<GpuFactoriesAndTaskRunner> result = waiter->Wait();
+
+  if (!result.has_value() || !result->gpu_factories ||
+      !result->media_task_runner) {
+    return ElectronVideoStatus::Unsupported;
+  }
+
+  ::media::VideoDecoderConfig config(
+      static_cast<::media::VideoCodec>(format->GetCodec()),
+      static_cast<::media::VideoCodecProfile>(format->GetProfile()),
+      ::media::VideoDecoderConfig::AlphaMode::kIsOpaque,
+      ::media::VideoColorSpace(), ::media::kNoTransformation, kDefaultSize,
+      gfx::Rect(kDefaultSize), kDefaultSize, ::media::EmptyExtraData(),
+      ::media::EncryptionScheme::kUnencrypted);
+
+  if (result->gpu_factories->IsDecoderConfigSupported(config) ==
+      ::media::GpuVideoAcceleratorFactories::Supported::kFalse) {
+    return ElectronVideoStatus::Unsupported;
+  }
+
+  media_thread_state_ = new DiscordVideoDecoderMediaThread(
+      std::move(config), video_sink, user_data, result->gpu_factories,
+      result->media_task_runner);
 
   ELECTRON_VIDEO_RETURN_IF_ERR(media_thread_state_->Initialize());
   initialized_ = true;

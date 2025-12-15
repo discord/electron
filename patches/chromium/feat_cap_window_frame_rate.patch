@@ -1,0 +1,259 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Graham Booker <graham.booker@discordapp.com>
+Date: Mon, 15 Dec 2025 08:13:52 -0800
+Subject: feat: cap window frame rate
+
+Allow the frame rate of window updates to be capped to a particular
+interval.
+
+diff --git a/components/viz/host/host_frame_sink_manager.cc b/components/viz/host/host_frame_sink_manager.cc
+index e575f2b9370abc80e548daede882efe62c481852..ace3a660e55002208f4aab907b835ed4e3fbe552 100644
+--- a/components/viz/host/host_frame_sink_manager.cc
++++ b/components/viz/host/host_frame_sink_manager.cc
+@@ -423,6 +423,11 @@ void HostFrameSinkManager::StopThrottlingAllFrameSinks() {
+   frame_sink_manager_->StopThrottlingAllFrameSinks();
+ }
+ 
++void HostFrameSinkManager::SetMinFrameInterval(const FrameSinkId& id,
++                                               base::TimeDelta interval) {
++  frame_sink_manager_->SetMinFrameInterval(id, interval);
++}
++
+ void HostFrameSinkManager::AddHitTestRegionObserver(
+     HitTestRegionObserver* observer) {
+   observers_.AddObserver(observer);
+diff --git a/components/viz/host/host_frame_sink_manager.h b/components/viz/host/host_frame_sink_manager.h
+index f7d8fc238c15da400b2f4de1d4142548f586332e..32064c78050346b190f75667e5cf3fff8403fd82 100644
+--- a/components/viz/host/host_frame_sink_manager.h
++++ b/components/viz/host/host_frame_sink_manager.h
+@@ -288,6 +288,7 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
+   void Throttle(const std::vector<FrameSinkId>& ids, base::TimeDelta interval);
+   void StartThrottlingAllFrameSinks(base::TimeDelta interval);
+   void StopThrottlingAllFrameSinks();
++  void SetMinFrameInterval(const FrameSinkId& id, base::TimeDelta interval);
+ 
+   // HitTestDataProvider implementation.
+   void AddHitTestRegionObserver(HitTestRegionObserver* observer) override;
+diff --git a/components/viz/service/frame_sinks/external_begin_frame_source_win.cc b/components/viz/service/frame_sinks/external_begin_frame_source_win.cc
+index f09e2f4c31a7ea73a0fd651f6f9794de1a3fdb62..ff8999705c9be3760d956fe02bc1e0afb184b9fb 100644
+--- a/components/viz/service/frame_sinks/external_begin_frame_source_win.cc
++++ b/components/viz/service/frame_sinks/external_begin_frame_source_win.cc
+@@ -19,6 +19,8 @@ BASE_FEATURE(kExternalBeginFrameSourceWinUsesRunOrPostTask,
+ 
+ }  // namespace
+ 
++constexpr uint32_t kMaxCadence = 24;
++
+ ExternalBeginFrameSourceWin::ExternalBeginFrameSourceWin(
+     uint32_t restart_id,
+     scoped_refptr<base::SequencedTaskRunner> task_runner)
+@@ -50,17 +52,17 @@ void ExternalBeginFrameSourceWin::OnVSyncOnSequence(
+     base::TimeDelta vsync_interval) {
+   DCHECK(task_runner_->RunsTasksInCurrentSequence());
+   vsync_interval_ = vsync_interval;
+-  if (skip_next_vsync_) {
++  if (frame_count_in_cadence_ < frame_cadence_) {
+     TRACE_EVENT_INSTANT0("gpu",
+                          "ExternalBeginFrameSourceWin::OnVSync - skip_vsync",
+                          TRACE_EVENT_SCOPE_THREAD);
+-    skip_next_vsync_ = false;
++    frame_count_in_cadence_++;
+     return;
+   }
+ 
+-  if (run_at_half_refresh_rate_) {
+-    skip_next_vsync_ = true;
+-    vsync_interval *= 2;
++  if (frame_cadence_ > 1) {
++    frame_count_in_cadence_ = 1;
++    vsync_interval *= frame_cadence_;
+   }
+   auto begin_frame_args = begin_frame_args_generator_.GenerateBeginFrameArgs(
+       source_id(), vsync_time, vsync_time + vsync_interval, vsync_interval,
+@@ -95,17 +97,34 @@ BeginFrameArgs ExternalBeginFrameSourceWin::GetMissedBeginFrameArgs(
+ 
+ void ExternalBeginFrameSourceWin::SetPreferredInterval(
+     base::TimeDelta interval) {
+-  auto interval_for_half_refresh_rate = vsync_interval_ * 2;
+   constexpr auto kMaxDelta = base::Milliseconds(0.5);
+-  bool run_at_half_refresh_rate =
+-      interval > (interval_for_half_refresh_rate - kMaxDelta);
+-  if (run_at_half_refresh_rate_ == run_at_half_refresh_rate)
++  uint32_t newCadence = kMaxCadence;
++
++  for (uint32_t i = 1; i <= kMaxCadence; i++) {
++    if (interval < vsync_interval_ * i + kMaxDelta) {
++      newCadence = i;
++      break;
++    }
++  }
++  if (frame_cadence_ == newCadence)
+     return;
+ 
+   TRACE_EVENT1("gpu", "ExternalBeginFrameSourceWin::SetPreferredInterval",
+-               "run_at_half_refresh_rate", run_at_half_refresh_rate);
+-  run_at_half_refresh_rate_ = run_at_half_refresh_rate;
+-  skip_next_vsync_ = false;
++               "cadence", newCadence);
++  frame_cadence_ = newCadence;
++  frame_count_in_cadence_ = newCadence;
++}
++
++base::flat_set<base::TimeDelta>
++ExternalBeginFrameSourceWin::GetSupportedFrameIntervals(
++    base::TimeDelta interval) {
++  base::flat_set<base::TimeDelta> intervals;
++
++  for (uint32_t i = 1; i <= kMaxCadence; i++) {
++    intervals.insert(interval * i);
++  }
++
++  return intervals;
+ }
+ 
+ void ExternalBeginFrameSourceWin::OnNeedsBeginFrames(bool needs_begin_frames) {
+@@ -113,7 +132,7 @@ void ExternalBeginFrameSourceWin::OnNeedsBeginFrames(bool needs_begin_frames) {
+     return;
+   }
+   observing_vsync_ = needs_begin_frames;
+-  skip_next_vsync_ = false;
++  frame_count_in_cadence_ = frame_cadence_;
+   if (needs_begin_frames) {
+     gl::VSyncThreadWin::GetInstance()->AddObserver(this);
+   } else {
+diff --git a/components/viz/service/frame_sinks/external_begin_frame_source_win.h b/components/viz/service/frame_sinks/external_begin_frame_source_win.h
+index df50ef22a553fc6bb9715bb22e93ec0b30570c63..4a2188b71c68269778c2b9e525e7489934aa0a29 100644
+--- a/components/viz/service/frame_sinks/external_begin_frame_source_win.h
++++ b/components/viz/service/frame_sinks/external_begin_frame_source_win.h
+@@ -31,6 +31,8 @@ class VIZ_SERVICE_EXPORT ExternalBeginFrameSourceWin
+   // ExternalBeginFrameSource implementation.
+   BeginFrameArgs GetMissedBeginFrameArgs(BeginFrameObserver* obs) override;
+   void SetPreferredInterval(base::TimeDelta interval) override;
++  base::flat_set<base::TimeDelta> GetSupportedFrameIntervals(
++      base::TimeDelta interval) override;
+   void SetVSyncDisplayID(int64_t display_id, bool force_update) override;
+ 
+   // ExternalBeginFrameSourceClient implementation.
+@@ -47,8 +49,8 @@ class VIZ_SERVICE_EXPORT ExternalBeginFrameSourceWin
+   BeginFrameArgsGenerator begin_frame_args_generator_;
+ 
+   bool observing_vsync_ = false;
+-  bool run_at_half_refresh_rate_ = false;
+-  bool skip_next_vsync_ = false;
++  uint32_t frame_cadence_ = 1;
++  uint32_t frame_count_in_cadence_ = 1;
+   base::TimeDelta vsync_interval_ = BeginFrameArgs::DefaultInterval();
+ 
+   base::WeakPtrFactory<ExternalBeginFrameSourceWin> weak_factory_{this};
+diff --git a/components/viz/service/frame_sinks/frame_sink_manager_impl.cc b/components/viz/service/frame_sinks/frame_sink_manager_impl.cc
+index aacb43d894d03d80898c88f9f162f14e33bdfe00..4d21f938ee538325dbfee3fc23fd6b304110cdea 100644
+--- a/components/viz/service/frame_sinks/frame_sink_manager_impl.cc
++++ b/components/viz/service/frame_sinks/frame_sink_manager_impl.cc
+@@ -1237,6 +1237,31 @@ void FrameSinkManagerImpl::StopThrottlingAllFrameSinks() {
+   global_throttle_interval_ = std::nullopt;
+   UpdateThrottling();
+ }
++ 
++void FrameSinkManagerImpl::SetMinFrameInterval(const FrameSinkId& id,
++                                               ::base::TimeDelta interval) {
++  if (!id.is_valid()) {
++    for (const auto& root : root_sink_map_) {
++      root.second->SetMinFrameInterval(interval);
++    }
++    return;
++  }
++
++  if (auto it = root_sink_map_.find(id); it != root_sink_map_.end()) {
++    it->second->SetMinFrameInterval(interval);
++  } else {
++    if (auto sink_source_it = frame_sink_source_map_.find(id);
++        sink_source_it != frame_sink_source_map_.end()) {
++      for (const auto& parent : sink_source_it->second.parent) {
++        if (auto root_it = root_sink_map_.find(parent);
++            root_it != root_sink_map_.end()) {
++          SetMinFrameInterval(parent, interval);
++          return;
++        }
++      }
++    }
++  }
++}
+ 
+ void FrameSinkManagerImpl::ApplyThrottlingRules(
+     const base::flat_set<FrameSinkId>& throttled_roots,
+diff --git a/components/viz/service/frame_sinks/frame_sink_manager_impl.h b/components/viz/service/frame_sinks/frame_sink_manager_impl.h
+index 6b7506ca1617ddd48bc9f8e2795abcdd034cd583..acac1867286e7f53eb7bb0d05673df4597172437 100644
+--- a/components/viz/service/frame_sinks/frame_sink_manager_impl.h
++++ b/components/viz/service/frame_sinks/frame_sink_manager_impl.h
+@@ -193,6 +193,8 @@ class VIZ_SERVICE_EXPORT FrameSinkManagerImpl
+                 base::TimeDelta interval) override;
+   void StartThrottlingAllFrameSinks(base::TimeDelta interval) override;
+   void StopThrottlingAllFrameSinks() override;
++  void SetMinFrameInterval(const FrameSinkId& id,
++                           ::base::TimeDelta interval) override;
+   void ClearUnclaimedViewTransitionResources(
+       const blink::ViewTransitionToken& transition_token) override;
+   void CreateMetricsRecorderForTest(
+diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
+index be0b51d7fec5dcc12413a8b4c1b63a0a03dd618b..b0391725434c447555a399e219c63bb357ff22f8 100644
+--- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
++++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.cc
+@@ -453,6 +453,9 @@ void RootCompositorFrameSinkImpl::UpdateVSyncParameters() {
+           ? preferred_frame_interval_
+           : display_frame_interval_;
+ 
++  if (min_frame_interval_) {
++    interval = std::max(interval, *min_frame_interval_);
++  }
+   if (synthetic_begin_frame_source_) {
+     synthetic_begin_frame_source_->OnUpdateVSyncParameters(timebase, interval);
+     if (vsync_listener_)
+@@ -1018,4 +1021,12 @@ void RootCompositorFrameSinkImpl::SetMaxVSyncAndVrr(
+   UpdateFrameIntervalDeciderSettings();
+ }
+ 
++void RootCompositorFrameSinkImpl::SetMinFrameInterval(
++    base::TimeDelta interval) {
++  min_frame_interval_ = interval.is_zero()
++                            ? std::nullopt
++                            : std::optional<base::TimeDelta>(interval);
++  UpdateVSyncParameters();
++}
++
+ }  // namespace viz
+diff --git a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.h b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.h
+index 7cc2624817b7fa89cbbb0e14a27cca298fbb5a71..66d79b0276d22b05dd1987260d4d8bf931ffe46d 100644
+--- a/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.h
++++ b/components/viz/service/frame_sinks/root_compositor_frame_sink_impl.h
+@@ -138,6 +138,8 @@ class VIZ_SERVICE_EXPORT RootCompositorFrameSinkImpl
+   void StartOverdrawTracking(int interval_length_in_seconds);
+   OverdrawTracker::OverdrawTimeSeries StopOverdrawTracking();
+ 
++  void SetMinFrameInterval(base::TimeDelta interval);
++
+  private:
+   class StandaloneBeginFrameObserver;
+ 
+@@ -251,6 +253,8 @@ class VIZ_SERVICE_EXPORT RootCompositorFrameSinkImpl
+   // `FrameIntervalDecider`. Absent if the display does not support those
+   // features.
+   std::optional<base::TimeDelta> max_vsync_interval_ = std::nullopt;
++
++  std::optional<base::TimeDelta> min_frame_interval_ = std::nullopt;
+ };
+ 
+ }  // namespace viz
+diff --git a/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom b/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
+index a822611b5fc966ee76b958d0cd923e0b40782653..88a0f24268df5ddb7854dbb5f5ce81a4ffe6af17 100644
+--- a/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
++++ b/services/viz/privileged/mojom/compositing/frame_sink_manager.mojom
+@@ -189,6 +189,9 @@ interface FrameSinkManager {
+   // If throttling is already disabled, this has no effect.
+   StopThrottlingAllFrameSinks();
+ 
++  // Sets a frame interval minimum that is indepedent of the above throttling.
++  SetMinFrameInterval(FrameSinkId id, mojo_base.mojom.TimeDelta interval);
++
+   // Takes a snapshot of |surface_id| or a newer surface with the same
+   // FrameSinkId. The request will be queued up until such surface exists and is
+   // reachable from the root surface.

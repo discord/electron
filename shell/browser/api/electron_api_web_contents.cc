@@ -42,6 +42,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/security_state/content/content_utils.h"
 #include "components/security_state/core/security_state.h"
+#include "content/browser/compositor/surface_utils.h"
 #include "content/browser/renderer_host/frame_tree_node.h"  // nogncheck
 #include "content/browser/renderer_host/navigation_controller_impl.h"  // nogncheck
 #include "content/browser/renderer_host/render_frame_host_impl.h"  // nogncheck
@@ -2664,6 +2665,23 @@ void WebContents::SetBackgroundThrottling(bool allowed) {
   }
 }
 
+void WebContents::SetMaxFPS(int32_t fps) {
+  auto* rfh = web_contents()->GetPrimaryMainFrame();
+  if (!rfh) {
+    return;
+  }
+
+  auto* rwh_impl =
+      static_cast<content::RenderWidgetHostImpl*>(rfh->GetRenderWidgetHost());
+  if (!rwh_impl) {
+    return;
+  }
+
+  content::GetHostFrameSinkManager()->SetMinFrameInterval(
+      rwh_impl->GetFrameSinkId(),
+      fps == 0 ? base::TimeDelta() : base::Seconds(1) / fps);
+}
+
 int32_t WebContents::GetProcessID() const {
   return web_contents()
       ->GetPrimaryMainFrame()
@@ -4901,6 +4919,7 @@ void WebContents::FillObjectTemplate(v8::Isolate* isolate,
                  &WebContents::GetBackgroundThrottling)
       .SetMethod("setBackgroundThrottling",
                  &WebContents::SetBackgroundThrottling)
+      .SetMethod("setMaxFPS", &WebContents::SetMaxFPS)
       .SetMethod("getProcessId", &WebContents::GetProcessID)
       .SetMethod("getOSProcessId", &WebContents::GetOSProcessID)
       .SetMethod("_setConsoleMessageObserved",

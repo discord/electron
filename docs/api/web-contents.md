@@ -2313,6 +2313,13 @@ This corresponds to the [animationPolicy][] accessibility feature in Chromium.
 
 [animationPolicy]: https://developer.chrome.com/docs/extensions/reference/accessibilityFeatures/#property-animationPolicy
 
+#### `contents.setMaxFPS(fps)`
+
+* `fps` number
+
+Sets the desired maximum frame rate to render the window.  The browser will
+attempt to match this as close as possible with a 1/n value of the vsync rate.
+
 ### Instance Properties
 
 #### `contents.ipc` _Readonly_

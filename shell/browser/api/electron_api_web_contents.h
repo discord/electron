@@ -209,6 +209,8 @@ class WebContents final : public ExclusiveAccessContext,
   bool GetBackgroundThrottling() const override;
 
   void SetBackgroundThrottling(bool allowed);
+
+  void SetMaxFPS(int32_t fps);
   int32_t GetProcessID() const;
   base::ProcessId GetOSProcessID() const;
   [[nodiscard]] Type type() const { return type_; }

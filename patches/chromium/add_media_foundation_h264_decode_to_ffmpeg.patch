@@ -1,0 +1,263 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Fri, 16 Jan 2026 19:41:22 +0000
+Subject: add media foundation h264 decode to ffmpeg
+
+
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 44decfa9d29d1363b5453f4c11d4a7a61adddfb9..1de0fb47d774c971043aed75a99e958a27739622 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3879,6 +3879,8 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+       switches::kTextGamma,
+       switches::kTrySupportedChannelLayouts,
+       switches::kRaiseTimerFrequency,
++      switches::kEnableH264MF,
++      switches::kEnableH264MFZeroCopy,
+ #endif
+ #if BUILDFLAG(IS_OZONE)
+       switches::kOzonePlatform,
+diff --git a/media/base/media_switches.cc b/media/base/media_switches.cc
+index 1cdacae4522fed5cc8f5009a289f7d9d9d7af953..b372b604e344af3336b38c3791c773f86559ecd4 100644
+--- a/media/base/media_switches.cc
++++ b/media/base/media_switches.cc
+@@ -278,6 +278,15 @@ const char kAlsaOutputDevice[] = "alsa-output-device";
+ #endif  // BUILDFLAG(IS_LINUX) || ...
+ 
+ #if BUILDFLAG(IS_WIN)
++// When enabled, FFmpegVideoDecoder will use
++// avcodec_find_decoder_by_name("h264_mf") to prefer Media Foundation software
++// h264 decode instead of its default software decoder.
++const char kEnableH264MF[] = "enable-h264-mf";
++
++// When enabled alongside kEnableH264MF, the h264_mf decoder will reuse Media
++// Foundation buffers directly instead of copying.
++const char kEnableH264MFZeroCopy[] = "enable-h264-mf-zero-copy";
++
+ // Use exclusive mode audio streaming for Windows Vista and higher.
+ // Leads to lower latencies for audio streams which uses the
+ // AudioParameters::AUDIO_PCM_LOW_LATENCY audio path.
+diff --git a/media/base/media_switches.h b/media/base/media_switches.h
+index ec136f49f1ed2dadef3159bd423cc65da7796d05..c5b762f98d7171c7fd1ad8a803b62eb1d1c80886 100644
+--- a/media/base/media_switches.h
++++ b/media/base/media_switches.h
+@@ -98,6 +98,8 @@ MEDIA_EXPORT extern const char kEnableExclusiveAudio[];
+ MEDIA_EXPORT extern const char kForceWaveAudio[];
+ MEDIA_EXPORT extern const char kTrySupportedChannelLayouts[];
+ MEDIA_EXPORT extern const char kWaveOutBuffers[];
++MEDIA_EXPORT extern const char kEnableH264MF[];
++MEDIA_EXPORT extern const char kEnableH264MFZeroCopy[];
+ #endif  // BUILDFLAG(IS_WIN)
+ 
+ #if BUILDFLAG(USE_CRAS)
+diff --git a/media/ffmpeg/ffmpeg_common.cc b/media/ffmpeg/ffmpeg_common.cc
+index 043513a51bb80a6143b6aede2ef20051db577419..c4f97cf603c77c8f98353393f71fc85e9c98b82b 100644
+--- a/media/ffmpeg/ffmpeg_common.cc
++++ b/media/ffmpeg/ffmpeg_common.cc
+@@ -69,7 +69,7 @@ VideoColorSpace GetGuessedColorSpace(const VideoColorSpace& color_space) {
+ const char* GetAllowedVideoDecoders() {
+   // This should match the configured lists in //third_party/ffmpeg.
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
+-  return "h264";
++  return "h264,h264_mf";
+ #else
+   return "";
+ #endif
+@@ -915,6 +915,7 @@ void VideoDecoderConfigToAVCodecContext(
+   codec_context->profile = VideoCodecProfileToProfileID(config.profile());
+   codec_context->coded_width = config.coded_size().width();
+   codec_context->coded_height = config.coded_size().height();
++
+   if (config.color_space_info().range == gfx::ColorSpace::RangeID::FULL)
+     codec_context->color_range = AVCOL_RANGE_JPEG;
+ 
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index ee025d170f06de215a814076f4439611ecea1f15..f8d61864ad134a3c20d3815f6db78eaaad6339e4 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -962,6 +962,8 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+             '--toolchain=msvc',
+             '--extra-cflags=-I' +
+             os.path.join(FFMPEG_DIR, 'chromium/include/win'),
++            '--enable-mediafoundation',
++            '--enable-decoder=h264_mf',
+         ])
+ 
+         if target_arch == 'x64':
+@@ -983,8 +985,10 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+ 
+     # Google Chrome specific configuration.
+     configure_flags['Chrome'].extend([
++        # TODO(dyc): remove h264 after h264_mf is rolled out
+         '--enable-decoder=aac,h264,hevc',
+         '--enable-demuxer=aac',
++        # TODO(dyc): remove h264 after h264_mf is rolled out
+         '--enable-parser=aac,h264,hevc',
+         '--enable-muxer=mp4',
+         '--enable-encoder=aac',
+diff --git a/media/filters/ffmpeg_video_decoder.cc b/media/filters/ffmpeg_video_decoder.cc
+index 014924d33a6ea4bf96aaddf8769527f07ef885d3..e034035e232aae5ee19a4a0bdc425778f89ff63b 100644
+--- a/media/filters/ffmpeg_video_decoder.cc
++++ b/media/filters/ffmpeg_video_decoder.cc
+@@ -10,6 +10,8 @@
+ #include <numeric>
+ 
+ #include "base/bits.h"
++#include "base/command_line.h"
++#include "base/compiler_specific.h"
+ #include "base/containers/span.h"
+ #include "base/functional/bind.h"
+ #include "base/functional/callback_helpers.h"
+@@ -18,6 +20,7 @@
+ #include "base/numerics/safe_conversions.h"
+ #include "base/task/bind_post_task.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "build/build_config.h"
+ #include "media/base/decoder_buffer.h"
+ #include "media/base/limits.h"
+ #include "media/base/media_log.h"
+@@ -412,9 +415,6 @@ bool FFmpegVideoDecoder::OnNewFrame(AVFrame* frame) {
+     return false;
+   }
+ 
+-  auto* opaque = static_cast<OpaqueData*>(av_buffer_get_opaque(frame->buf[0]));
+-  CHECK(!!opaque);
+-
+   // `frame->width,height` may be different from what they were when we
+   // allocated the buffer.  Presumably `width` is always the same, but in
+   // practice `height` can be smaller.  They are advertised as the coded size,
+@@ -433,10 +433,63 @@ bool FFmpegVideoDecoder::OnNewFrame(AVFrame* frame) {
+   gfx::Size natural_size = aspect_ratio.GetNaturalSize(visible_rect);
+ 
+   const auto pts = ConvertFromTimeBase(codec_context_->pkt_timebase, frame->pts);
+-  auto video_frame = VideoFrame::WrapExternalDataWithLayout(
+-      opaque->layout, visible_rect, natural_size, opaque->data, pts);
+-  if (!video_frame) {
+-    return false;
++
++
++  scoped_refptr<VideoFrame> video_frame;
++
++#if BUILDFLAG(IS_WIN)
++  if (is_h264_mf_ && is_h264_mf_zero_copy_) {
++    // frame->data[] points directly into the locked Media Foundation buffer. No
++    // OpaqueData or FrameBufferPool involved. The MF buffer was wrapped in
++    // frame->buf[0] by mfdec.c, so its length is known and we can derive
++    // bounded per-plane spans by subspan-ing the parent buffer.
++    const gfx::Size coded_size(frame->width, frame->height);
++    base::span<const uint8_t> mf_buffer = UNSAFE_BUFFERS(base::span(
++        static_cast<const uint8_t*>(frame->buf[0]->data),
++        static_cast<size_t>(frame->buf[0]->size)));
++    const size_t y_offset =
++        static_cast<size_t>(frame->data[0] - frame->buf[0]->data);
++    const size_t u_offset =
++        static_cast<size_t>(frame->data[1] - frame->buf[0]->data);
++    const size_t v_offset =
++        static_cast<size_t>(frame->data[2] - frame->buf[0]->data);
++    const size_t uv_height = (static_cast<size_t>(frame->height) + 1) / 2;
++    const size_t y_bytes =
++        static_cast<size_t>(frame->linesize[0]) * frame->height;
++    const size_t u_bytes =
++        static_cast<size_t>(frame->linesize[1]) * uv_height;
++    const size_t v_bytes =
++        static_cast<size_t>(frame->linesize[2]) * uv_height;
++    video_frame = VideoFrame::WrapExternalYuvData(
++        PIXEL_FORMAT_I420, coded_size, visible_rect, natural_size,
++        frame->linesize[0], frame->linesize[1], frame->linesize[2],
++        mf_buffer.subspan(y_offset, y_bytes),
++        mf_buffer.subspan(u_offset, u_bytes),
++        mf_buffer.subspan(v_offset, v_bytes), pts);
++    if (!video_frame) {
++      return false;
++    }
++
++    AVBufferRef* mf_buf_ref = av_buffer_ref(frame->buf[0]);
++    if (!mf_buf_ref) {
++      return false;
++    }
++    video_frame->AddDestructionObserver(base::BindOnce(
++        [](AVBufferRef* buf) { av_buffer_unref(&buf); }, mf_buf_ref));
++  } else
++#endif  // BUILDFLAG(IS_WIN)
++  {
++    // OpaqueData was set up by GetVideoBuffer (get_buffer2).
++    auto* opaque =
++        static_cast<OpaqueData*>(av_buffer_get_opaque(frame->buf[0]));
++    CHECK(!!opaque);
++    video_frame = VideoFrame::WrapExternalDataWithLayout(
++        opaque->layout, visible_rect, natural_size, opaque->data, pts);
++    if (!video_frame) {
++      return false;
++    }
++    video_frame->AddDestructionObserver(
++        frame_pool_->CreateFrameCallback(opaque->fb_priv));
+   }
+ 
+   auto config_cs = config_.color_space_info().ToGfxColorSpace();
+@@ -470,8 +523,6 @@ bool FFmpegVideoDecoder::OnNewFrame(AVFrame* frame) {
+   video_frame->set_color_space(color_space.IsValid() ? color_space : config_cs);
+ 
+   video_frame->metadata().power_efficient = false;
+-  video_frame->AddDestructionObserver(
+-      frame_pool_->CreateFrameCallback(opaque->fb_priv));
+   output_cb_.Run(video_frame);
+   return true;
+ }
+@@ -505,11 +556,40 @@ bool FFmpegVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config,
+   // microsecond-level precision such as VideoFrame.timestamp.
+   codec_context_->pkt_timebase = AVRational{1, 1000000};
+ 
++#if BUILDFLAG(IS_WIN)
++  const AVCodec* codec = nullptr;
++
++  if (codec_context_->codec_id == AV_CODEC_ID_H264 &&
++      base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableH264MF)) {
++    is_h264_mf_ = true;
++    is_h264_mf_zero_copy_ =
++        base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableH264MFZeroCopy);
++    // mfdec.c needs pkt_timebase to convert PTS to/from MF's 100ns timebase
++    codec_context_->pkt_timebase = {1, base::Time::kMicrosecondsPerSecond};
++    codec = avcodec_find_decoder_by_name("h264_mf");
++    MEDIA_LOG(INFO, media_log_) << "Using h264_mf decoder, zero_copy="
++                                << is_h264_mf_zero_copy_;
++  } else {
++    is_h264_mf_ = false;
++    is_h264_mf_zero_copy_ = false;
++    codec = avcodec_find_decoder(codec_context_->codec_id);
++  }
++
++  AVDictionary* opts = nullptr;
++  if (is_h264_mf_zero_copy_) {
++    av_dict_set(&opts, "zerocopy", "1", 0);
++  }
++#else
+   const AVCodec* codec = avcodec_find_decoder(codec_context_->codec_id);
+-  if (!codec || avcodec_open2(codec_context_.get(), codec, nullptr) < 0) {
++  AVDictionary* opts = nullptr;
++#endif
++
++  if (!codec || avcodec_open2(codec_context_.get(), codec, &opts) < 0) {
++    av_dict_free(&opts);
+     ReleaseFFmpegResources();
+     return false;
+   }
++  av_dict_free(&opts);
+ 
+   decoding_loop_ = std::make_unique<FFmpegDecodingLoop>(codec_context_.get());
+   return true;
+diff --git a/media/filters/ffmpeg_video_decoder.h b/media/filters/ffmpeg_video_decoder.h
+index a381ede884462420e1b19d16603d173f7f340071..be2dc49f71ec5b1da18897d016c009229b9b4cfd 100644
+--- a/media/filters/ffmpeg_video_decoder.h
++++ b/media/filters/ffmpeg_video_decoder.h
+@@ -91,6 +91,11 @@ class MEDIA_EXPORT FFmpegVideoDecoder : public VideoDecoder {
+ 
+   bool force_allocation_error_ = false;
+ 
++#if BUILDFLAG(IS_WIN)
++  bool is_h264_mf_ = false;
++  bool is_h264_mf_zero_copy_ = false;
++#endif  // BUILDFLAG(IS_WIN)
++
+   // More specific error code to surface after an error occurs during decoding.
+   DecoderStatus::Codes error_status_ = DecoderStatus::Codes::kFailed;
+ 

@@ -1,2 +1,3 @@
 link_with_loader_path.patch
 add_discord_ffmpeg_config_options.patch
+add_media_foundation_h264_decode.patch

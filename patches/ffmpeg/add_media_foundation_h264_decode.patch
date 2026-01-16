@@ -1,0 +1,1279 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Fri, 16 Jan 2026 19:39:30 +0000
+Subject: add media foundation h264 decode
+
+
+diff --git a/chromium/ffmpeg.sigs b/chromium/ffmpeg.sigs
+index dfb37d171c6f887f17e157e92689f1dd702f0981..6070a4a30e7eeb85d64fa98120d6e03d52072c56 100644
+--- a/chromium/ffmpeg.sigs
++++ b/chromium/ffmpeg.sigs
+@@ -8,6 +8,7 @@
+ AVCodecContext *avcodec_alloc_context3(const AVCodec *codec);
+ void avcodec_free_context(AVCodecContext **avctx);
+ AVCodec *avcodec_find_decoder(enum AVCodecID id);
++AVCodec *avcodec_find_decoder_by_name(const char *name);
+ int av_new_packet(AVPacket *pkt, int size);
+ int avcodec_open2(AVCodecContext *avctx, const AVCodec *codec, AVDictionary **options);
+ const char *avcodec_get_name(enum AVCodecID id);
+@@ -57,6 +58,8 @@ int av_samples_get_buffer_size(int *linesize, int nb_channels, int nb_samples, e
+ int av_image_check_size(unsigned int w, unsigned int h, int log_offset, void *log_ctx);
+ AVBufferRef *av_buffer_create(uint8_t *data, int size, AVFreeOperation free, void *opaque, int flags);
+ void *av_buffer_get_opaque(const AVBufferRef *buf);
++AVBufferRef *av_buffer_ref(const AVBufferRef *buf);
++void av_buffer_unref(AVBufferRef **buf);
+ int av_get_cpu_flags(void);
+ void av_force_cpu_flags(int flags);
+ void av_max_alloc(size_t max);
+diff --git a/configure b/configure
+index dbb6f89134947b9c353a49fd193709407775772d..d00e34bb58af243d37ff5a4b6ea8e40b72dd6426 100755
+--- a/configure
++++ b/configure
+@@ -3219,6 +3219,8 @@ h263p_decoder_select="h263_decoder"
+ h263p_encoder_select="h263_encoder"
+ h264_decoder_select="cabac golomb h264chroma h264dsp h264parse h264pred h264qpel h264_sei videodsp"
+ h264_decoder_suggest="error_resilience"
++h264_mf_decoder_select="h264_mp4toannexb_bsf h264_parser"
++h264_mf_decoder_deps="mediafoundation"
+ hap_decoder_select="snappy texturedsp"
+ hap_encoder_deps="libsnappy"
+ hap_encoder_select="texturedspenc"
+@@ -3580,6 +3582,7 @@ wmv3_vdpau_hwaccel_select="vc1_vdpau_hwaccel"
+ # hardware-accelerated codecs
+ d3d12va_encode_deps="d3d12va ID3D12VideoEncoder d3d12_encoder_feature"
+ mediafoundation_deps="mftransform_h MFCreateAlignedMemoryBuffer"
++mf_deps="mfapi_h"
+ qsv_deps="libmfx"
+ qsvdec_select="qsv"
+ qsvenc_select="qsv"
+@@ -7092,6 +7095,7 @@ enabled libdrm &&
+ 
+ check_headers linux/perf_event.h
+ check_headers malloc.h
++check_headers mfapi.h
+ check_headers mftransform.h
+ check_headers net/udplite.h
+ check_headers poll.h
+@@ -7744,7 +7748,8 @@ test_cpp <<EOF && enable uwp
+ #endif
+ EOF
+ 
+-mediafoundation_extralibs="-lmfuuid -lole32 -lstrmiids"
++mediafoundation_extralibs="-lmfplat -lmfuuid -lole32 -lstrmiids"
++mf_extralibs="-lmfplat -lmfuuid"
+ 
+ if enabled uwp; then
+     # In UWP mode, we can't use LoadLibrary+GetProcAddress to conditionally
+diff --git a/ffmpeg_generated.gni b/ffmpeg_generated.gni
+index 6075e647ae01d2830bed70272d61202f2309545f..d05317bfc3b99a33b1d38494a4bb0f661fc57616 100644
+--- a/ffmpeg_generated.gni
++++ b/ffmpeg_generated.gni
+@@ -299,6 +299,14 @@ if (current_cpu == "arm64" || current_cpu == "arm64e" || current_cpu == "x64" ||
+   ]
+ }
+ 
++# Media Foundation H.264 decoder (Windows only)
++if (is_win && ffmpeg_branding == "Chrome") {
++  ffmpeg_c_sources += [
++    "libavcodec/mf_utils.c",
++    "libavcodec/mfdec.c",
++  ]
++}
++
+ if (((current_cpu == "arm64" || current_cpu == "arm64e") &&
+      ffmpeg_branding == "Chrome") ||
+     (current_cpu == "x64" && ffmpeg_branding == "Chrome") ||
+diff --git a/libavcodec/Makefile b/libavcodec/Makefile
+index 232fdd7339907b1429dca71fce356719c0258a08..fdfd1492d386e3570af25f16e68bc690c5623f48 100644
+--- a/libavcodec/Makefile
++++ b/libavcodec/Makefile
+@@ -441,6 +441,7 @@ OBJS-$(CONFIG_H264_D3D12VA_ENCODER)    += d3d12va_encode_h264.o h264_levels.o \
+ OBJS-$(CONFIG_H264_MEDIACODEC_DECODER) += mediacodecdec.o
+ OBJS-$(CONFIG_H264_MEDIACODEC_ENCODER) += mediacodecenc.o
+ OBJS-$(CONFIG_H264_MF_ENCODER)         += mfenc.o mf_utils.o
++OBJS-$(CONFIG_H264_MF_DECODER)         += mfdec.o mf_utils.o
+ OBJS-$(CONFIG_H264_MMAL_DECODER)       += mmaldec.o
+ OBJS-$(CONFIG_H264_NVENC_ENCODER)      += nvenc_h264.o nvenc.o
+ OBJS-$(CONFIG_H264_OH_DECODER)         += ohcodec.o ohdec.o
+diff --git a/libavcodec/allcodecs.c b/libavcodec/allcodecs.c
+index e1668f1e803da70586a0d409031bf817cf8bc047..dd453b05307af29afb1763016900390560b9f90c 100644
+--- a/libavcodec/allcodecs.c
++++ b/libavcodec/allcodecs.c
+@@ -867,6 +867,7 @@ extern const FFCodec ff_h264_amf_decoder;
+ extern const FFCodec ff_h264_cuvid_decoder;
+ extern const FFCodec ff_h264_d3d12va_encoder;
+ extern const FFCodec ff_h264_mf_encoder;
++extern const FFCodec ff_h264_mf_decoder;
+ extern const FFCodec ff_h264_nvenc_encoder;
+ extern const FFCodec ff_h264_oh_decoder;
+ extern const FFCodec ff_h264_oh_encoder;
+diff --git a/libavcodec/bsf/h264_mp4toannexb.c b/libavcodec/bsf/h264_mp4toannexb.c
+index 216fea92d1790d37fe27c129b1198f435b5b8753..17a2988d0e0b4861663b2d1e334ffb93a92ec569 100644
+--- a/libavcodec/bsf/h264_mp4toannexb.c
++++ b/libavcodec/bsf/h264_mp4toannexb.c
+@@ -320,8 +320,7 @@ static int h264_mp4toannexb_filter(AVBSFContext *ctx, AVPacket *opkt)
+         goto fail;
+ 
+ #define LOG_ONCE(...) \
+-    if (j) \
+-        av_log(__VA_ARGS__)
++    do { if (j) av_log(__VA_ARGS__); } while (0)
+     for (int j = 0; j < 2; j++) {
+         buf      = in->data;
+         new_idr  = s->new_idr;
+diff --git a/libavcodec/mf_utils.c b/libavcodec/mf_utils.c
+index ff44130ca9563edcd021020304ca8a5b8a3886bb..e2573fe26f1faa50a82ae5947ec9e67626e3bab3 100644
+--- a/libavcodec/mf_utils.c
++++ b/libavcodec/mf_utils.c
+@@ -25,6 +25,9 @@
+ #include "mf_utils.h"
+ #include "libavutil/pixdesc.h"
+ 
++// This GUID is from icodecapi.h in Windows SDK
++DEFINE_GUID(IID_ICodecAPI, 0x901db4c7, 0x31ce, 0x41a2, 0x85, 0xdc, 0x8f, 0xa0, 0xbf, 0x41, 0xb8, 0xda);
++
+ HRESULT ff_MFGetAttributeSize(IMFAttributes *pattr, REFGUID guid,
+                               UINT32 *pw, UINT32 *ph)
+ {
+diff --git a/libavcodec/mf_utils.h b/libavcodec/mf_utils.h
+index ecebb6fcdfa2f03264b891ed44fb380b0cd3a7b7..84f9ee279dd72ecf2a754e86ae648ea7da3fb9e2 100644
+--- a/libavcodec/mf_utils.h
++++ b/libavcodec/mf_utils.h
+@@ -122,6 +122,7 @@ DEFINE_MEDIATYPE_GUID(ff_MFVideoFormat_HEVC, 0x43564548); // FCC('HEVC')
+ DEFINE_MEDIATYPE_GUID(ff_MFVideoFormat_HEVC_ES, 0x53564548); // FCC('HEVS')
+ DEFINE_MEDIATYPE_GUID(ff_MFVideoFormat_AV1, 0x31305641); // FCC('AV01')
+ 
++DEFINE_GUID(IID_IMFTransform, 0xbf94c121, 0x5b05, 0x4e6f, 0x80, 0x00, 0xba, 0x59, 0x89, 0x61, 0x41, 0x4d);
+ 
+ // This enum is missing from mingw-w64's codecapi.h by v7.0.0.
+ enum ff_eAVEncCommonRateControlMode {
+@@ -192,3 +193,25 @@ int ff_instantiate_mf(void *log, MFFunctions *f, GUID category,
+ void ff_free_mf(MFFunctions *f, IMFTransform **mft);
+ 
+ #endif
++
++// Media Foundation uses 100-nanosecond time units
++#define MF_TIMEBASE (AVRational){1, 10000000}
++#define MF_INVALID_TIME AV_NOPTS_VALUE
++
++#if !HAVE_UWP
++#define LOAD_MF_FUNCTION(context, func_name) \
++    context->functions.func_name = (void *)dlsym(context->library, #func_name); \
++    if (!context->functions.func_name) { \
++        av_log(context, AV_LOG_ERROR, "DLL mfplat.dll failed to find function %s\n", \
++           #func_name); \
++        return AVERROR_UNKNOWN; \
++    }
++#else
++#define LOAD_MF_FUNCTION(context, func_name) \
++    context->functions.func_name = func_name; \
++    if (!context->functions.func_name) { \
++        av_log(context, AV_LOG_ERROR, "Failed to find function %s\n", \
++               #func_name); \
++        return AVERROR_UNKNOWN; \
++    }
++#endif
+diff --git a/libavcodec/mfdec.c b/libavcodec/mfdec.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..b6de2f8a947a2439cafaa2035dc58a7ca89062a5
+--- /dev/null
++++ b/libavcodec/mfdec.c
+@@ -0,0 +1,1055 @@
++/*
++ * This file is part of FFmpeg.
++ *
++ * FFmpeg is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * FFmpeg is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with FFmpeg; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
++ */
++
++#define COBJMACROS
++#if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0602
++#undef _WIN32_WINNT
++#define _WIN32_WINNT 0x0602
++#endif
++
++#include "compat/w32dlfcn.h"
++#include "libavutil/avassert.h"
++#include "libavutil/common.h"
++#include "libavutil/hwcontext.h"
++#include "libavutil/imgutils.h"
++#include "libavutil/opt.h"
++#include "libavutil/pixdesc.h"
++
++#include "avcodec.h"
++#include "codec_internal.h"
++#include "decode.h"
++#include "h264_parse.h"
++#include "internal.h"
++#include "mf_utils.h"
++
++// Match Chrome's timestamp_map capacity of 128 entries
++#define MF_PACKET_CACHE_MAX_SIZE 128
++
++// Convert FFmpeg time to Media Foundation time
++static LONGLONG ff_to_mf_time(AVCodecContext *avctx, int64_t av_pts)
++{
++    if (av_pts == AV_NOPTS_VALUE) {
++        return MF_INVALID_TIME;
++    }
++
++    AVRational tb = avctx->pkt_timebase;
++    if (tb.num <= 0 || tb.den <= 0) {
++        tb = avctx->time_base;
++    }
++    if (tb.num <= 0 || tb.den <= 0) {
++        tb = MF_TIMEBASE;
++    }
++
++    return av_rescale_q(av_pts, tb, MF_TIMEBASE);
++}
++
++// Convert Media Foundation time to FFmpeg time
++static int64_t ff_from_mf_time(AVCodecContext *avctx, LONGLONG mf_time)
++{
++    AVRational tb = avctx->pkt_timebase;
++    if (tb.num <= 0 || tb.den <= 0) {
++        tb = avctx->time_base;
++    }
++    if (tb.num <= 0 || tb.den <= 0) {
++        tb = MF_TIMEBASE;
++    }
++
++    return av_rescale_q(mf_time, MF_TIMEBASE, tb);
++}
++
++// Opaque structure passed to AVBuffer free function to release MF resources
++typedef struct MFBufferContext {
++    IMFMediaBuffer *buffer;
++    IMFSample *sample;
++} MFBufferContext;
++
++typedef struct MFContext {
++    AVClass *avclass;
++    HMODULE library;
++    MFFunctions functions;
++    IMFTransform *decoder;
++    ICodecAPI *codec_api;
++    IMFMediaType *input_type;
++    IMFMediaType *output_type;
++    DWORD input_stream_id;
++    DWORD output_stream_id;
++    int initialized;
++    int draining;
++    int output_sample_allocated;  // Whether we need to allocate output samples
++    DWORD output_buffer_size;     // Size of output buffer from stream info
++    int width;
++    int height;
++    int stride;  // Stride (bytes per line) from MF decoder
++    // Packet that was pulled from FFmpeg but couldn't be sent to MF (buffer full)
++    // Must be cached because ff_decode_get_packet() consumes from internal buffer
++    AVPacket *prev_packet;
++    // Timestamp tracking: MF PTS start from 0, which need to offset to look up against input PTS
++    int64_t first_pts;          // PTS of first input packet
++    LONGLONG first_mf_pts;       // First MF output timestamp
++    int pts_offset_initialized;  // Whether offset has been computed
++    // We need to preserve opaque data through Media Foundation, so we stash input packet
++    // properties to be reassociated on output frames, via input PTS
++    AVPacket **packet_props;     // Array of cached packet properties
++    int packet_props_count;      // Number of cached properties
++    int packet_props_capacity;   // Capacity of packet_props array
++    int lowlatency;              // Enable low-latency mode for real-time video (default 0)
++    int zerocopy;                // Reuse MF buffer instead of copying (default 0)
++} MFContext;
++
++static void mf_free_buffer(void *opaque, uint8_t *data)
++{
++    MFBufferContext *buf_ctx = (MFBufferContext *)opaque;
++    if (buf_ctx) {
++        if (buf_ctx->buffer) {
++            IMFMediaBuffer_Unlock(buf_ctx->buffer);
++            IMFMediaBuffer_Release(buf_ctx->buffer);
++        }
++        if (buf_ctx->sample) {
++            IMFSample_Release(buf_ctx->sample);
++        }
++        av_free(buf_ctx);
++    }
++}
++
++static int mf_load_library(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++#if !HAVE_UWP
++    ctx->library = dlopen("mfplat.dll", 0);
++
++    if (!ctx->library) {
++        av_log(ctx, AV_LOG_ERROR, "DLL mfplat.dll failed to open\n");
++        return AVERROR_UNKNOWN;
++    }
++#endif
++
++    LOAD_MF_FUNCTION(ctx, MFStartup);
++    LOAD_MF_FUNCTION(ctx, MFShutdown);
++    LOAD_MF_FUNCTION(ctx, MFCreateAlignedMemoryBuffer);
++    LOAD_MF_FUNCTION(ctx, MFCreateSample);
++    LOAD_MF_FUNCTION(ctx, MFCreateMediaType);
++    LOAD_MF_FUNCTION(ctx, MFTEnumEx);
++
++    return 0;
++}
++
++static int mf_init(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    HRESULT hr;
++    MFT_REGISTER_TYPE_INFO input_info = {0};
++    int ret;
++
++    ctx->prev_packet = NULL;
++    ctx->first_pts = AV_NOPTS_VALUE;
++    ctx->first_mf_pts = 0;
++    ctx->pts_offset_initialized = 0;
++
++    ret = mf_load_library(avctx);
++    if (ret < 0) {
++        return ret;
++    }
++
++    input_info.guidMajorType = MFMediaType_Video;
++    input_info.guidSubtype = MFVideoFormat_H264;
++    // TODO(dyc): do we know format here?
++    ret = ff_instantiate_mf(avctx, &ctx->functions, MFT_CATEGORY_VIDEO_DECODER,
++                            &input_info, NULL, 0, &ctx->decoder);
++    if (ret < 0) {
++        return ret;
++    }
++
++    DWORD input_ids[1], output_ids[1];
++    hr = IMFTransform_GetStreamIDs(ctx->decoder, 1, input_ids, 1, output_ids);
++    if (hr == E_NOTIMPL) {
++        ctx->input_stream_id = 0;
++        ctx->output_stream_id = 0;
++    } else if (SUCCEEDED(hr)) {
++        ctx->input_stream_id = input_ids[0];
++        ctx->output_stream_id = output_ids[0];
++    } else {
++        if (ctx->decoder) {
++            IMFTransform_Release(ctx->decoder);
++        }
++        ctx->decoder = NULL;
++        return AVERROR_EXTERNAL;
++    }
++
++    return 0;
++}
++
++static int mf_set_input_type(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    HRESULT hr;
++    IMFMediaType *type = NULL;
++
++    hr = ctx->functions.MFCreateMediaType(&type);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to create input media type\n");
++        return AVERROR_EXTERNAL;
++    }
++
++    IMFMediaType_SetGUID(type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
++    IMFMediaType_SetGUID(type, &MF_MT_SUBTYPE, &MFVideoFormat_H264);
++
++    if (avctx->width > 0 && avctx->height > 0) {
++        IMFMediaType_SetUINT64(type, &MF_MT_FRAME_SIZE,
++                               ((UINT64)avctx->width << 32) | avctx->height);
++    }
++
++    // Set extradata (SPS/PPS for H.264) if available
++    if (avctx->extradata && avctx->extradata_size > 0) {
++        hr = IMFMediaType_SetBlob(type, &MF_MT_MPEG_SEQUENCE_HEADER,
++                                  avctx->extradata, avctx->extradata_size);
++        if (FAILED(hr)) {
++            av_log(avctx, AV_LOG_WARNING, "Failed to set extradata: 0x%lx\n", hr);
++        }
++    } else {
++        av_log(avctx, AV_LOG_TRACE, "No extradata available\n");
++    }
++
++    hr = IMFTransform_SetInputType(ctx->decoder, ctx->input_stream_id, type, 0);
++    IMFMediaType_Release(type);
++
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to set input type: 0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    return 0;
++}
++
++static int mf_set_output_type(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    HRESULT hr;
++    IMFMediaType *type = NULL;
++    DWORD type_index = 0;
++    GUID subtype;
++
++    while (SUCCEEDED(IMFTransform_GetOutputAvailableType(ctx->decoder,
++                                                          ctx->output_stream_id,
++                                                          type_index++,
++                                                          &type))) {
++        hr = IMFMediaType_GetGUID(type, &MF_MT_SUBTYPE, &subtype);
++        if (FAILED(hr)) {
++            IMFMediaType_Release(type);
++            continue;
++        }
++
++        if (IsEqualGUID(&subtype, &MFVideoFormat_I420) ||
++            IsEqualGUID(&subtype, &MFVideoFormat_IYUV)) {
++                break;
++        }
++
++        IMFMediaType_Release(type);
++        type = NULL;
++    }
++
++    if (!type) {
++        av_log(avctx, AV_LOG_ERROR, "YUV420P output format not found\n");
++        return AVERROR_EXTERNAL;
++    }
++
++    hr = IMFTransform_SetOutputType(ctx->decoder, ctx->output_stream_id, type, 0);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to set output type: 0x%lx\n", hr);
++        IMFMediaType_Release(type);
++        return AVERROR_EXTERNAL;
++    }
++
++    // Get coded frame dimensions
++    UINT64 frame_size;
++    hr = IMFMediaType_GetUINT64(type, &MF_MT_FRAME_SIZE, &frame_size);
++    if (SUCCEEDED(hr)) {
++        ctx->width = (int)(frame_size >> 32);
++        ctx->height = (int)(frame_size & 0xFFFFFFFF);
++    }
++
++    // Try to get display aperture (actual display dimensions after SPS crop)
++    MFVideoArea display_aperture;
++    UINT32 aperture_size;
++    hr = IMFMediaType_GetBlob(type, &MF_MT_MINIMUM_DISPLAY_APERTURE,
++                               (UINT8*)&display_aperture, sizeof(display_aperture),
++                               &aperture_size);
++    if (SUCCEEDED(hr)) {
++        avctx->width = display_aperture.Area.cx;
++        avctx->height = display_aperture.Area.cy;
++        av_log(avctx, AV_LOG_DEBUG, "Display aperture: %dx%d (coded: %dx%d)\n",
++               avctx->width, avctx->height, ctx->width, ctx->height);
++    } else {
++        // No display aperture, use coded dimensions
++        avctx->width = ctx->width;
++        avctx->height = ctx->height;
++        av_log(avctx, AV_LOG_DEBUG, "No display aperture, using coded dimensions\n");
++    }
++
++    UINT32 stride;
++    hr = IMFMediaType_GetUINT32(type, &MF_MT_DEFAULT_STRIDE, &stride);
++    if (SUCCEEDED(hr)) {
++        ctx->stride = (int)stride;
++    } else {
++        ctx->stride = ctx->width;
++        av_log(avctx, AV_LOG_TRACE, "No stride info, assuming stride = width\n");
++    }
++
++    avctx->pix_fmt = AV_PIX_FMT_YUV420P;
++    ctx->output_type = type;
++
++    // Check if we need to allocate output samples
++    MFT_OUTPUT_STREAM_INFO output_info;
++    hr = IMFTransform_GetOutputStreamInfo(ctx->decoder, ctx->output_stream_id, &output_info);
++    if (SUCCEEDED(hr)) {
++        // Store the buffer size requirement
++        ctx->output_buffer_size = output_info.cbSize;
++
++        if (output_info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) {
++            ctx->output_sample_allocated = 0;
++        } else {
++            ctx->output_sample_allocated = 1;
++        }
++    } else {
++        av_log(avctx, AV_LOG_WARNING, "Failed to get output stream info: 0x%lx, assuming we allocate\n", hr);
++        ctx->output_sample_allocated = 1;
++        // Fall back to calculated size
++        ctx->output_buffer_size = ctx->width * ctx->height * 3 / 2;
++    }
++
++    return 0;
++}
++
++static int mf_cache_packet_props(AVCodecContext *avctx, const AVPacket *pkt)
++{
++    MFContext *ctx = avctx->priv_data;
++    int ret;
++
++    if (!pkt) {
++        return 0;  // we may see null packets during draining
++    }
++
++    // Decoder is likely stalled or matching is failing
++    // If Chrome's own timestamp buffer exceeds this, it'll evict IDs
++    // making matching impossible anyway
++    if (ctx->packet_props_count >= MF_PACKET_CACHE_MAX_SIZE) {
++        av_log(avctx, AV_LOG_ERROR,
++               "Packet cache at MAX size (%d). Evicting oldest entry. "
++               "This indicates decoder output is stalled or PTS matching is failing.\n",
++               ctx->packet_props_count);
++
++        // Evict oldest cached packet (FIFO)
++        // TODO(dyc): or should we just flush here?
++        if (ctx->packet_props[0]) {
++            av_packet_free(&ctx->packet_props[0]);
++        }
++        for (int i = 0; i < ctx->packet_props_count - 1; i++) {
++            ctx->packet_props[i] = ctx->packet_props[i + 1];
++        }
++        ctx->packet_props_count--;
++    }
++
++    if (ctx->packet_props_count >= ctx->packet_props_capacity) {
++        int new_capacity = ctx->packet_props_capacity == 0 ? 16 : ctx->packet_props_capacity * 2;
++        // No point allocating more than max
++        if (new_capacity > MF_PACKET_CACHE_MAX_SIZE) {
++            new_capacity = MF_PACKET_CACHE_MAX_SIZE;
++        }
++        AVPacket **new_props = av_realloc_array(ctx->packet_props, new_capacity, sizeof(AVPacket *));
++        if (!new_props) {
++            return AVERROR(ENOMEM);
++        }
++        ctx->packet_props = new_props;
++        ctx->packet_props_capacity = new_capacity;
++    }
++
++    AVPacket *cached = av_packet_alloc();
++    if (!cached) {
++        return AVERROR(ENOMEM);
++    }
++    ret = av_packet_copy_props(cached, pkt);
++    if (ret < 0) {
++        av_packet_free(&cached);
++        return ret;
++    }
++    cached->pts = pkt->pts;
++    cached->dts = pkt->dts;
++    ctx->packet_props[ctx->packet_props_count++] = cached;
++    return 0;
++}
++
++static int mf_copy_packet_props_to_frame(AVCodecContext *avctx, AVFrame *frame, int64_t pts)
++{
++    MFContext *ctx = avctx->priv_data;
++    AVPacket *matched = NULL;
++    int matched_idx = -1;
++
++    if (pts != AV_NOPTS_VALUE) {
++        for (int i = 0; i < ctx->packet_props_count; i++) {
++            if (ctx->packet_props[i] &&
++                ctx->packet_props[i]->pts == pts) {
++                matched = ctx->packet_props[i];
++                matched_idx = i;
++                break;
++            }
++        }
++    }
++
++    if (!matched) {
++        return 0;
++    }
++
++    int ret = 0;
++    if (avctx->flags & AV_CODEC_FLAG_COPY_OPAQUE) {
++        ret = av_buffer_replace(&frame->opaque_ref, matched->opaque_ref);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_WARNING,
++                   "Failed to copy opaque_ref for pts=%"PRId64": %d\n", pts, ret);
++        } else {
++            frame->opaque = matched->opaque;
++        }
++    }
++
++    av_packet_free(&ctx->packet_props[matched_idx]);
++    for (int i = matched_idx; i < ctx->packet_props_count - 1; i++) {
++        ctx->packet_props[i] = ctx->packet_props[i + 1];
++    }
++    ctx->packet_props_count--;
++    return ret;
++}
++
++static int mf_initialize_decoder(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    HRESULT hr;
++    int ret;
++
++    if (ctx->initialized) {
++        return 0;
++    }
++
++    av_log(avctx, AV_LOG_TRACE, "Requested low latency mode: %s\n", ctx->lowlatency ? "enabled" : "disabled");
++    if (ctx->lowlatency) {
++        hr = IMFTransform_QueryInterface(ctx->decoder, &IID_ICodecAPI, (void **)&ctx->codec_api);
++        if (SUCCEEDED(hr)) {
++            hr = ICodecAPI_SetValue(ctx->codec_api, &ff_CODECAPI_AVLowLatencyMode, FF_VAL_VT_UI4(1));
++            if (!SUCCEEDED(hr)) {
++                av_log(avctx, AV_LOG_DEBUG, "Low-latency mode not supported (hr=0x%lx)\n", hr);
++            }
++        } else {
++            av_log(avctx, AV_LOG_DEBUG, "ICodecAPI interface not available (hr=0x%lx)\n", hr);
++        }
++    }
++
++    ret = mf_set_input_type(avctx);
++    if (ret < 0) {
++        return ret;
++    }
++
++    ret = mf_set_output_type(avctx);
++    if (ret < 0) {
++        return ret;
++    }
++
++    hr = IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to start streaming: 0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    hr = IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to notify start: 0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    ctx->initialized = 1;
++    return 0;
++}
++
++static int mf_signal_drain(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    HRESULT hr;
++
++    hr = IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to notify EOS: 0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    hr = IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_COMMAND_DRAIN, 0);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to drain: 0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    ctx->draining = 1;
++    return 0;
++}
++
++static void mf_release_output(IMFMediaBuffer *buffer, IMFSample *sample)
++{
++    if (buffer) {
++        IMFMediaBuffer_Unlock(buffer);
++        IMFMediaBuffer_Release(buffer);
++    }
++    if (sample) {
++        IMFSample_Release(sample);
++    }
++}
++
++// TODO(dyc): inline this and delete mf_copy_into_frame after experiment
++static int mf_wrap_in_frame(AVCodecContext *avctx, AVFrame *frame,
++                            IMFSample *output_sample, IMFMediaBuffer *buffer,
++                            BYTE *data, DWORD length) {
++    MFContext *ctx = avctx->priv_data;
++    int ret;
++    HRESULT hr;
++    // MF aligns to 16-row boundaries
++    int aligned_height = (ctx->height + 15) & ~15;
++
++    // Use the stride we got from MF_MT_DEFAULT_STRIDE or ctx->width
++    int y_stride = ctx->stride;
++
++    int uv_stride = y_stride / 2;
++    int aligned_uv_height = (aligned_height + 1) / 2;
++    DWORD required_size = (y_stride * aligned_height) +
++                            (uv_stride * aligned_uv_height) +
++                            (uv_stride * aligned_uv_height);
++
++    if (length < required_size) {
++        av_log(avctx, AV_LOG_ERROR,
++                "Media Foundation buffer too small: got %lu bytes, need %lu bytes "
++                "(stride=%d, aligned_height=%d)\n",
++                (unsigned long)length, (unsigned long)required_size,
++                y_stride, aligned_height);
++        IMFMediaBuffer_Unlock(buffer);
++        IMFMediaBuffer_Release(buffer);
++        IMFSample_Release(output_sample);
++        return AVERROR_EXTERNAL;
++    }
++
++    MFBufferContext *buf_ctx = av_mallocz(sizeof(MFBufferContext));
++    if (!buf_ctx) {
++        IMFMediaBuffer_Unlock(buffer);
++        IMFMediaBuffer_Release(buffer);
++        IMFSample_Release(output_sample);
++        return AVERROR(ENOMEM);
++    }
++    buf_ctx->buffer = buffer;
++    buf_ctx->sample = output_sample;
++
++    frame->buf[0] = av_buffer_create(data, length, mf_free_buffer, buf_ctx, 0);
++    if (!frame->buf[0]) {
++        av_free(buf_ctx);
++        IMFMediaBuffer_Unlock(buffer);
++        IMFMediaBuffer_Release(buffer);
++        IMFSample_Release(output_sample);
++        return AVERROR(ENOMEM);
++    }
++
++    // Use display dimensions for frame width/height. Chromium's OnNewFrame
++    // passes these as coded_size to WrapExternalYuvData, which computes plane
++    // sizes from them. Since we pass separate plane pointers, the extra padding
++    // rows in the MF buffer (aligned to 16) are simply unused.
++    frame->format = AV_PIX_FMT_YUV420P;
++    frame->width = avctx->width;
++    frame->height = avctx->height;
++
++    frame->data[0] = data;
++    frame->data[1] = data + (y_stride * aligned_height);
++    frame->data[2] = data + (y_stride * aligned_height) + (uv_stride * aligned_uv_height);
++
++    frame->linesize[0] = y_stride;
++    frame->linesize[1] = uv_stride;
++    frame->linesize[2] = uv_stride;
++
++    ret = ff_attach_decode_data(avctx, frame);
++    if (ret < 0) {
++        av_frame_unref(frame);
++        return ret;
++    }
++
++    LONGLONG mf_timestamp;
++    hr = IMFSample_GetSampleTime(output_sample, &mf_timestamp);
++    if (SUCCEEDED(hr)) {
++        int64_t ff_pts = ff_from_mf_time(avctx, mf_timestamp);
++        if (!ctx->pts_offset_initialized && ctx->first_pts != AV_NOPTS_VALUE) {
++            ctx->first_mf_pts = mf_timestamp;
++            ctx->pts_offset_initialized = 1;
++        }
++
++        // Apply offset: Use the first input PTS and subtract what the first MF timestamp would be
++        if (ctx->pts_offset_initialized && ctx->first_pts != AV_NOPTS_VALUE) {
++            int64_t first_ff_pts = ff_from_mf_time(avctx, ctx->first_mf_pts);
++            // TODO(dyc): is that subtraction always positive (does that matter)?
++            frame->pts = ff_pts + (ctx->first_pts - first_ff_pts);
++        } else {
++            frame->pts = ff_pts;
++        }
++
++        // Associates the output frame with the correct input packet to handle MF's reordering
++        ret = mf_copy_packet_props_to_frame(avctx, frame, frame->pts);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_ERROR, "Failed to copy packet props to frame: %d\n", ret);
++            av_frame_unref(frame);
++            return ret;
++        }
++    } else {
++        frame->pts = AV_NOPTS_VALUE;
++    }
++
++    LONGLONG mf_duration;
++    hr = IMFSample_GetSampleDuration(output_sample, &mf_duration);
++    if (SUCCEEDED(hr)) {
++        frame->duration = ff_from_mf_time(avctx, mf_duration);
++    }
++
++    return 0;
++}
++
++static int mf_copy_into_frame(AVCodecContext *avctx, AVFrame *frame,
++                              IMFSample *output_sample, IMFMediaBuffer *buffer,
++                              BYTE *data, DWORD length) {
++    MFContext *ctx = avctx->priv_data;
++    int ret;
++    HRESULT hr;
++    frame->format = AV_PIX_FMT_YUV420P;
++    // Use display dimensions (avctx) for frame allocation, not coded dimensions (ctx)
++    // This ensures proper crop when video has non-16-aligned height (e.g. 360p coded as 384p)
++    frame->width = avctx->width;
++    frame->height = avctx->height;
++
++    ret = ff_get_buffer(avctx, frame, 0);
++    if (ret < 0) {
++        mf_release_output(buffer, output_sample);
++        return ret;
++    }
++
++    // MF aligns to 16-row boundaries
++    int aligned_height = (ctx->height + 15) & ~15;
++
++    // Use the stride we got from MF_MT_DEFAULT_STRIDE or ctx->width
++    int y_stride = ctx->stride;
++
++    int uv_stride = y_stride / 2;
++    int aligned_uv_height = (aligned_height + 1) / 2;
++    DWORD required_size = (y_stride * aligned_height) +
++                          (uv_stride * aligned_uv_height) +
++                          (uv_stride * aligned_uv_height);
++
++    if (length < required_size) {
++        av_log(avctx, AV_LOG_ERROR,
++               "Media Foundation buffer too small: got %lu bytes, need %lu bytes "
++               "(stride=%d, aligned_height=%d)\n",
++               (unsigned long)length, (unsigned long)required_size,
++               y_stride, aligned_height);
++        av_frame_unref(frame);
++        mf_release_output(buffer, output_sample);
++        return AVERROR_EXTERNAL;
++    }
++
++    const uint8_t *src_y = data;
++    uint8_t *dst_y = frame->data[0];
++    // Use display dimensions for actual copy
++    for (int y = 0; y < avctx->height; y++) {
++        memcpy(dst_y, src_y, avctx->width);
++        src_y += y_stride;
++        dst_y += frame->linesize[0];
++    }
++
++    int display_uv_height = avctx->height / 2;
++
++    // Use coded dimensions for buffer offset
++    const uint8_t *src_u = data + (y_stride * aligned_height);
++    uint8_t *dst_u = frame->data[1];
++
++    for (int y = 0; y < display_uv_height; y++) {
++        memcpy(dst_u, src_u, avctx->width / 2);
++        src_u += uv_stride;
++        dst_u += frame->linesize[1];
++    }
++
++    const uint8_t *src_v = data + (y_stride * aligned_height) + (uv_stride * aligned_uv_height);
++    uint8_t *dst_v = frame->data[2];
++
++    for (int y = 0; y < display_uv_height; y++) {
++        memcpy(dst_v, src_v, avctx->width / 2);
++        src_v += uv_stride;
++        dst_v += frame->linesize[2];
++    }
++
++    LONGLONG mf_timestamp;
++    hr = IMFSample_GetSampleTime(output_sample, &mf_timestamp);
++    if (SUCCEEDED(hr)) {
++        int64_t ff_pts = ff_from_mf_time(avctx, mf_timestamp);
++        if (!ctx->pts_offset_initialized && ctx->first_pts != AV_NOPTS_VALUE) {
++            ctx->first_mf_pts = mf_timestamp;
++            ctx->pts_offset_initialized = 1;
++        }
++
++        // Apply offset: Use the first input PTS and subtract what the first MF timestamp would be
++        if (ctx->pts_offset_initialized && ctx->first_pts != AV_NOPTS_VALUE) {
++            int64_t first_ff_pts = ff_from_mf_time(avctx, ctx->first_mf_pts);
++            // TODO(dyc): is that subtraction always positive (does that matter)?
++            frame->pts = ff_pts + (ctx->first_pts - first_ff_pts);
++        } else {
++            frame->pts = ff_pts;
++        }
++
++        // Associates the output frame with the correct input packet to handle MF's reordering
++        ret = mf_copy_packet_props_to_frame(avctx, frame, frame->pts);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_ERROR, "Failed to copy packet props to frame: %d\n", ret);
++            av_frame_unref(frame);
++            mf_release_output(buffer, output_sample);
++            return ret;
++        }
++    } else {
++        frame->pts = AV_NOPTS_VALUE;
++    }
++
++    LONGLONG mf_duration;
++    hr = IMFSample_GetSampleDuration(output_sample, &mf_duration);
++    if (SUCCEEDED(hr)) {
++        frame->duration = ff_from_mf_time(avctx, mf_duration);
++    }
++
++    mf_release_output(buffer, output_sample);
++    return 0;
++}
++
++static int mf_receive_frame(AVCodecContext *avctx, AVFrame *frame)
++{
++    MFContext *ctx = avctx->priv_data;
++    AVPacket *pkt = NULL;
++    HRESULT hr;
++    MFT_OUTPUT_DATA_BUFFER output = {0};
++    IMFSample *input_sample = NULL;
++    IMFSample *output_sample = NULL;
++    IMFMediaBuffer *buffer = NULL;
++    BYTE *data = NULL;
++    DWORD length = 0;
++    DWORD status = 0;
++    int ret = AVERROR_EXTERNAL;
++
++    while (!ctx->draining) {
++        if (ctx->prev_packet) {
++            pkt = ctx->prev_packet;
++            ctx->prev_packet = NULL;
++        } else {
++            pkt = av_packet_alloc();
++            if (!pkt) {
++                return AVERROR(ENOMEM);
++            }
++
++            ret = ff_decode_get_packet(avctx, pkt);
++            if (ret < 0 && ret != AVERROR_EOF) {
++                av_packet_free(&pkt);
++                if (ret == AVERROR(EAGAIN)) {
++                    if (!ctx->initialized) {
++                        return AVERROR(EAGAIN);
++                    }
++                    // Try to get output from MF
++                    break;
++                }
++                return ret;
++            }
++
++            if (ret == AVERROR_EOF) {
++                av_packet_free(&pkt);
++
++                if (ctx->initialized) {
++                    ret = mf_signal_drain(avctx);
++                    if (ret < 0) {
++                        return ret;
++                    }
++                    break;
++                } else {
++                    return AVERROR_EOF;
++                }
++            }
++        }
++
++        if (!ctx->initialized) {
++            ret = mf_initialize_decoder(avctx);
++            if (ret < 0) {
++                av_packet_free(&pkt);
++                return ret;
++            }
++        }
++
++        input_sample = ff_create_memory_sample(&ctx->functions, pkt->data, pkt->size, 1);
++        if (!input_sample) {
++            av_packet_free(&pkt);
++            return AVERROR_EXTERNAL;
++        }
++
++        if (pkt->pts != AV_NOPTS_VALUE) {
++            if (ctx->first_pts == AV_NOPTS_VALUE) {
++                ctx->first_pts = pkt->pts;
++            }
++
++            LONGLONG mf_time = ff_to_mf_time(avctx, pkt->pts);
++            if (mf_time != MF_INVALID_TIME) {
++                IMFSample_SetSampleTime(input_sample, mf_time);
++            }
++        }
++
++        if (pkt->duration > 0) {
++            LONGLONG mf_duration = ff_to_mf_time(avctx, pkt->duration);
++            if (mf_duration != MF_INVALID_TIME) {
++                IMFSample_SetSampleDuration(input_sample, mf_duration);
++            }
++        }
++
++        hr = IMFTransform_ProcessInput(ctx->decoder, ctx->input_stream_id, input_sample, 0);
++        IMFSample_Release(input_sample);
++
++        if (hr == MF_E_NOTACCEPTING) {
++            ctx->prev_packet = pkt;
++            break;  // Decoder has enough input, try to get output
++        } else if (FAILED(hr)) {
++            av_log(avctx, AV_LOG_ERROR, "ProcessInput failed: hr=0x%lx\n", hr);
++            av_packet_free(&pkt);
++            return AVERROR_EXTERNAL;
++        }
++
++        ret = mf_cache_packet_props(avctx, pkt);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_ERROR,
++                   "Failed to cache packet properties for pts=%lld (packet accepted by MF)\n",
++                   pkt->pts);
++        }
++
++        av_packet_free(&pkt);
++    }
++
++    // Try to get output
++    output.dwStreamID = ctx->output_stream_id;
++    if (ctx->output_sample_allocated) {
++        IMFMediaBuffer *output_buffer = NULL;
++        IMFSample *allocated_sample = NULL;
++
++        // TODO(dyc): zero copy?
++        hr = ctx->functions.MFCreateAlignedMemoryBuffer(ctx->output_buffer_size, MF_16_BYTE_ALIGNMENT, &output_buffer);
++        if (FAILED(hr)) {
++            return AVERROR_EXTERNAL;
++        }
++
++        // Buffer length will be filled by ProcessOutput
++        hr = IMFMediaBuffer_SetCurrentLength(output_buffer, 0);
++        if (FAILED(hr)) {
++            IMFMediaBuffer_Release(output_buffer);
++            return AVERROR_EXTERNAL;
++        }
++
++        hr = ctx->functions.MFCreateSample(&allocated_sample);
++        if (FAILED(hr)) {
++            IMFMediaBuffer_Release(output_buffer);
++            return AVERROR_EXTERNAL;
++        }
++
++        hr = IMFSample_AddBuffer(allocated_sample, output_buffer);
++        IMFMediaBuffer_Release(output_buffer);
++        if (FAILED(hr)) {
++            IMFSample_Release(allocated_sample);
++            return AVERROR_EXTERNAL;
++        }
++
++        output.pSample = allocated_sample;
++    }
++
++    hr = IMFTransform_ProcessOutput(ctx->decoder, 0, 1, &output, &status);
++
++    if (ctx->output_sample_allocated && output.pSample && FAILED(hr)) {
++        IMFSample_Release(output.pSample);
++        output.pSample = NULL;
++    }
++
++    if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
++        if (ctx->output_sample_allocated && output.pSample) {
++            IMFSample_Release(output.pSample);
++        }
++
++        if (ctx->draining) {
++            return AVERROR_EOF;
++        }
++
++        return AVERROR(EAGAIN);
++    }
++
++    if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
++        if (ctx->output_sample_allocated && output.pSample) {
++            IMFSample_Release(output.pSample);
++        }
++        if (ctx->output_type) {
++            IMFMediaType_Release(ctx->output_type);
++            ctx->output_type = NULL;
++        }
++        ret = mf_set_output_type(avctx);
++        if (ret < 0) {
++            return ret;
++        }
++        return AVERROR(EAGAIN);
++    }
++
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "ProcessOutput failed: hr=0x%lx\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++
++    output_sample = output.pSample;
++    if (!output_sample) {
++        return AVERROR_EXTERNAL;
++    }
++
++    hr = IMFSample_ConvertToContiguousBuffer(output_sample, &buffer);
++    if (FAILED(hr)) {
++        IMFSample_Release(output_sample);
++        return AVERROR_EXTERNAL;
++    }
++
++    hr = IMFMediaBuffer_Lock(buffer, &data, NULL, &length);
++    if (FAILED(hr)) {
++        av_log(avctx, AV_LOG_ERROR, "h264_mf: IMFMediaBuffer_Lock FAILED hr=0x%lx\n", (unsigned long)hr);
++        IMFMediaBuffer_Release(buffer);
++        IMFSample_Release(output_sample);
++        return AVERROR_EXTERNAL;
++    }
++
++    if (ctx->zerocopy) {
++        return mf_wrap_in_frame(avctx, frame, output_sample, buffer, data, length);
++    } else {
++        return mf_copy_into_frame(avctx, frame, output_sample, buffer, data, length);
++    }
++}
++
++static void mf_flush(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++    if (ctx->decoder && ctx->initialized) {
++        IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_COMMAND_FLUSH, 0);
++    }
++    ctx->draining = 0;
++    // Clear cached packet properties (needed on seek)
++    // Without this, we'd match post-seek frames with pre-seek packets,
++    // causing Chrome's timestamp_map lookups to fail
++    if (ctx->packet_props) {
++        for (int i = 0; i < ctx->packet_props_count; i++) {
++            if (ctx->packet_props[i]) {
++                av_packet_free(&ctx->packet_props[i]);
++            }
++        }
++        ctx->packet_props_count = 0;
++    }
++    // Reset timestamp tracking (decoder starts fresh after flush)
++    ctx->first_pts = AV_NOPTS_VALUE;
++    ctx->first_mf_pts = 0;
++    ctx->pts_offset_initialized = 0;
++    if (ctx->prev_packet) {
++        av_packet_free(&ctx->prev_packet);
++        ctx->prev_packet = NULL;
++    }
++}
++
++static av_cold int mf_close(AVCodecContext *avctx)
++{
++    MFContext *ctx = avctx->priv_data;
++
++    if (ctx->decoder && ctx->initialized) {
++        IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
++        IMFTransform_ProcessMessage(ctx->decoder, MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
++    }
++
++    if (ctx->codec_api) {
++        ICodecAPI_Release(ctx->codec_api);
++        ctx->codec_api = NULL;
++    }
++
++    if (ctx->input_type) {
++        IMFMediaType_Release(ctx->input_type);
++        ctx->input_type = NULL;
++    }
++
++    if (ctx->output_type) {
++        IMFMediaType_Release(ctx->output_type);
++        ctx->output_type = NULL;
++    }
++
++    if (ctx->prev_packet) {
++        av_packet_free(&ctx->prev_packet);
++        ctx->prev_packet = NULL;
++    }
++
++    if (ctx->packet_props) {
++        for (int i = 0; i < ctx->packet_props_count; i++) {
++            if (ctx->packet_props[i]) {
++                av_packet_free(&ctx->packet_props[i]);
++            }
++        }
++        av_freep(&ctx->packet_props);
++        ctx->packet_props_count = 0;
++        ctx->packet_props_capacity = 0;
++    }
++
++    if (ctx->decoder || ctx->functions.MFShutdown) {
++        ff_free_mf(&ctx->functions, &ctx->decoder);
++    }
++
++#if !HAVE_UWP
++    if (ctx->library) {
++        dlclose(ctx->library);
++        ctx->library = NULL;
++    }
++#endif
++
++    return 0;
++}
++
++#define OFFSET(x) offsetof(MFContext, x)
++#define VD AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_DECODING_PARAM
++static const AVOption options[] = {
++    { "lowlatency", "Enable low-latency mode for real-time video", OFFSET(lowlatency), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, VD },
++    { "zerocopy", "Reuse MF buffer instead of copying", OFFSET(zerocopy), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, VD },
++    { NULL }
++};
++
++static const AVClass h264_mf_class = {
++    .class_name = "h264_mf",
++    .item_name  = av_default_item_name,
++    .option     = options,
++    .version    = LIBAVUTIL_VERSION_INT,
++};
++
++const FFCodec ff_h264_mf_decoder = {
++    .p.name         = "h264_mf",
++    CODEC_LONG_NAME("H.264 Media Foundation decoder"),
++    .p.type         = AVMEDIA_TYPE_VIDEO,
++    .p.id           = AV_CODEC_ID_H264,
++    .priv_data_size = sizeof(MFContext),
++    .init           = mf_init,
++    FF_CODEC_RECEIVE_FRAME_CB(mf_receive_frame),
++    .close          = mf_close,
++    .flush          = mf_flush,
++    .bsfs           = "h264_mp4toannexb",
++    .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DELAY | AV_CODEC_CAP_AVOID_PROBING | AV_CODEC_CAP_OTHER_THREADS,
++    .caps_internal  = FF_CODEC_CAP_NOT_INIT_THREADSAFE | FF_CODEC_CAP_INIT_CLEANUP | FF_CODEC_CAP_SETS_PKT_DTS | FF_CODEC_CAP_SETS_FRAME_PROPS,
++    .p.priv_class   = &h264_mf_class,
++    .p.wrapper_name = "mf",
++};
+diff --git a/libavcodec/mfenc.c b/libavcodec/mfenc.c
+index b51735268b345f5d3829f00f9c72742834854a5a..b4c49260c11686fb719993de0dbbee3405eeea36 100644
+--- a/libavcodec/mfenc.c
++++ b/libavcodec/mfenc.c
+@@ -70,10 +70,6 @@ typedef struct MFContext {
+ static int mf_choose_output_type(AVCodecContext *avctx);
+ static int mf_setup_context(AVCodecContext *avctx);
+ 
+-#define MF_TIMEBASE (AVRational){1, 10000000}
+-// Sentinel value only used by us.
+-#define MF_INVALID_TIME AV_NOPTS_VALUE
+-
+ static int mf_wait_events(AVCodecContext *avctx)
+ {
+     MFContext *c = avctx->priv_data;
+@@ -1319,27 +1315,6 @@ static int mf_init_encoder(AVCodecContext *avctx)
+     return 0;
+ }
+ 
+-#if !HAVE_UWP
+-#define LOAD_MF_FUNCTION(context, func_name) \
+-    context->functions.func_name = (void *)dlsym(context->library, #func_name); \
+-    if (!context->functions.func_name) { \
+-        av_log(context, AV_LOG_ERROR, "DLL mfplat.dll failed to find function "\
+-           #func_name "\n"); \
+-        return AVERROR_UNKNOWN; \
+-    }
+-#else
+-// In UWP (which lacks LoadLibrary), just link directly against
+-// the functions - this requires building with new/complete enough
+-// import libraries.
+-#define LOAD_MF_FUNCTION(context, func_name) \
+-    context->functions.func_name = func_name; \
+-    if (!context->functions.func_name) { \
+-        av_log(context, AV_LOG_ERROR, "Failed to find function " #func_name \
+-               "\n"); \
+-        return AVERROR_UNKNOWN; \
+-    }
+-#endif
+-
+ // Windows N editions does not provide MediaFoundation by default.
+ // So to avoid DLL loading error, MediaFoundation is dynamically loaded except
+ // on UWP build since LoadLibrary is not available on it.

@@ -2,3 +2,4 @@ link_with_loader_path.patch
 add_discord_ffmpeg_config_options.patch
 add_missing_license_headers_to_cbs.patch
 add_media_foundation_h264_decode.patch
+add_dynamic_loading_for_openh264_on_linux.patch

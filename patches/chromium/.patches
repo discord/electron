@@ -331,3 +331,4 @@ add_cbs_files_to_license_exception.patch
 feat_cap_window_frame_rate.patch
 add_media_foundation_h264_decode_to_ffmpeg.patch
 remove_hevc_decode_from_ffmpeg.patch
+enable_openh264_dynamic_loading_for_linux_x64.patch

@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Harris <chris.harris@discordapp.com>
+Date: Thu, 19 Feb 2026 13:11:55 -0800
+Subject: Enable OpenH264 dynamic loading for Linux x64
+
+
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index 1de0fb47d774c971043aed75a99e958a27739622..6cfcecd0cd9734b8f634f86895ddc1138ce030a2 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3882,6 +3882,10 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+       switches::kEnableH264MF,
+       switches::kEnableH264MFZeroCopy,
+ #endif
++#if BUILDFLAG(IS_LINUX)
++      switches::kOpenH264LibraryPath,
++      switches::kEnableLibOpenH264,
++#endif
+ #if BUILDFLAG(IS_OZONE)
+       switches::kOzonePlatform,
+ #endif
+diff --git a/media/base/media_switches.cc b/media/base/media_switches.cc
+index b372b604e344af3336b38c3791c773f86559ecd4..d7626ab215ad4c5c790a88995dfe700dfd41ec36 100644
+--- a/media/base/media_switches.cc
++++ b/media/base/media_switches.cc
+@@ -308,6 +308,17 @@ const char kTrySupportedChannelLayouts[] = "try-supported-channel-layouts";
+ const char kWaveOutBuffers[] = "waveout-buffers";
+ #endif  // BUILDFLAG(IS_WIN)
+ 
++#if BUILDFLAG(IS_LINUX)
++// When enabled, FFmpegVideoDecoder will use
++// avcodec_find_decoder_by_name("libopenh264") to prefer Cisco Openh264 wrapper
++// h264 decode instead of its default software decoder.
++const char kEnableLibOpenH264[] = "enable-libopenh264";
++
++// Specifies the path to the libopenh264 library. If not set, defaults to
++// "libopenh264.so" on the library search path.
++const char kOpenH264LibraryPath[] = "openh264-library-path";
++#endif
++
+ #if BUILDFLAG(USE_CRAS)
+ // Enforce system audio echo cancellation.
+ const char kSystemAecEnabled[] = "system-aec-enabled";
+diff --git a/media/base/media_switches.h b/media/base/media_switches.h
+index c5b762f98d7171c7fd1ad8a803b62eb1d1c80886..ff5ae5682b2fa37f729afe0c264fbd9802b1968c 100644
+--- a/media/base/media_switches.h
++++ b/media/base/media_switches.h
+@@ -101,6 +101,11 @@ MEDIA_EXPORT extern const char kWaveOutBuffers[];
+ MEDIA_EXPORT extern const char kEnableH264MF[];
+ MEDIA_EXPORT extern const char kEnableH264MFZeroCopy[];
+ #endif  // BUILDFLAG(IS_WIN)
++ 
++#if BUILDFLAG(IS_LINUX)
++MEDIA_EXPORT extern const char kEnableLibOpenH264[];
++MEDIA_EXPORT extern const char kOpenH264LibraryPath[];
++#endif
+ 
+ #if BUILDFLAG(USE_CRAS)
+ MEDIA_EXPORT extern const char kSystemAecEnabled[];
+diff --git a/media/ffmpeg/ffmpeg_common.cc b/media/ffmpeg/ffmpeg_common.cc
+index c4f97cf603c77c8f98353393f71fc85e9c98b82b..3b07ce45ff02b7fd690d934f63317604e1351904 100644
+--- a/media/ffmpeg/ffmpeg_common.cc
++++ b/media/ffmpeg/ffmpeg_common.cc
+@@ -69,7 +69,7 @@ VideoColorSpace GetGuessedColorSpace(const VideoColorSpace& color_space) {
+ const char* GetAllowedVideoDecoders() {
+   // This should match the configured lists in //third_party/ffmpeg.
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
+-  return "h264,h264_mf";
++  return "h264,h264_mf,libopenh264";
+ #else
+   return "";
+ #endif
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index 9db6e15f40f69488d52033a8b026a4f4088d005f..628ab3c63f22eb93e05b40e687e1d1b98dee6da9 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -723,6 +723,8 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+                     '--enable-lto',
+                     '--arch=x86_64',
+                     '--target-os=linux',
++                    '--enable-libopenh264',
++                    '--enable-decoder=libopenh264',
+                 ])
+ 
+                 if host_arch != 'x64':
+diff --git a/media/ffmpeg/scripts/generate_gn.py b/media/ffmpeg/scripts/generate_gn.py
+index f713615593cd1d06cb8e068f7efa91bd5c5c7f02..b16dcf0b7921020e4388cd9d11678b1cc14ab35d 100755
+--- a/media/ffmpeg/scripts/generate_gn.py
++++ b/media/ffmpeg/scripts/generate_gn.py
+@@ -719,6 +719,8 @@ MUST_BE_MISSING_INCLUDE_FILES = [
+ # licenses are okay to add.
+ ALLOWED_LICENSES = [
+     'BSD (3 clause) LGPL (v2.1 or later)',
++    'BSD (2 clause)',
++    'GENERATED FILE',
+     'BSL (v1) LGPL (v2.1 or later)',
+     'ISC GENERATED FILE',
+     'LGPL (v2.1 or later)',
+diff --git a/media/filters/ffmpeg_video_decoder.cc b/media/filters/ffmpeg_video_decoder.cc
+index e034035e232aae5ee19a4a0bdc425778f89ff63b..ada7152012f76dee1b08ae53f2c8b8fba06fc965 100644
+--- a/media/filters/ffmpeg_video_decoder.cc
++++ b/media/filters/ffmpeg_video_decoder.cc
+@@ -34,6 +34,12 @@
+ #include "media/ffmpeg/ffmpeg_decoding_loop.h"
+ #include "media/filters/ffmpeg_glue.h"
+ 
++#if BUILDFLAG(IS_LINUX)
++extern "C" {
++void ff_libopenh264_set_library_path(const char* path);
++}
++#endif
++
+ namespace media {
+ 
+ namespace {
+@@ -579,6 +585,27 @@ bool FFmpegVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config,
+   if (is_h264_mf_zero_copy_) {
+     av_dict_set(&opts, "zerocopy", "1", 0);
+   }
++#elif BUILDFLAG(IS_LINUX)
++  const AVCodec* codec = nullptr;
++  AVDictionary* opts = nullptr;
++
++  if (codec_context_->codec_id == AV_CODEC_ID_H264 &&
++      base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kEnableLibOpenH264)) {
++    // Set custom library path if provided before attempting to load
++    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
++            switches::kOpenH264LibraryPath)) {
++      std::string library_path = base::CommandLine::ForCurrentProcess()
++                                      ->GetSwitchValueASCII(switches::kOpenH264LibraryPath);
++      ff_libopenh264_set_library_path(library_path.c_str());
++      MEDIA_LOG(INFO, media_log_) << "Setting OpenH264 library path to: " << library_path;
++    }
++
++    codec = avcodec_find_decoder_by_name("libopenh264");
++    MEDIA_LOG(INFO, media_log_) << "Using libopenh264 decoder";
++  } else {
++    codec = avcodec_find_decoder(codec_context_->codec_id);
++  }
+ #else
+   const AVCodec* codec = avcodec_find_decoder(codec_context_->codec_id);
+   AVDictionary* opts = nullptr;

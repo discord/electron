@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jozsef Vass <jozsef@discordapp.com>
+Date: Tue, 10 Feb 2026 13:56:07 -0800
+Subject: remove hevc decode from ffmpeg
+
+remove hevc decode from ffmpeg
+
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index 43205347d1bce8575840a9a08507ad0c783c83fe..46ba41f004d6844c4568ab02b6905d4eaf833a2b 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -994,10 +994,10 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+     # Google Chrome specific configuration.
+     configure_flags['Chrome'].extend([
+         # TODO(dyc): remove h264 after h264_mf is rolled out
+-        '--enable-decoder=aac,h264,hevc',
++        '--enable-decoder=aac,h264',
+         '--enable-demuxer=aac',
+         # TODO(dyc): remove h264 after h264_mf is rolled out
+-        '--enable-parser=aac,h264,hevc',
++        '--enable-parser=aac,h264',
+         '--enable-muxer=mp4',
+         '--enable-encoder=aac',
+         '--enable-protocol=file',

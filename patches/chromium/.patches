@@ -330,3 +330,4 @@ fix_syntax_fixup_and_support_import_option_for_rolling_ffmpeg_from.patch
 add_cbs_files_to_license_exception.patch
 feat_cap_window_frame_rate.patch
 add_media_foundation_h264_decode_to_ffmpeg.patch
+remove_hevc_decode_from_ffmpeg.patch

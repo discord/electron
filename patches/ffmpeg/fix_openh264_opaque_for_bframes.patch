@@ -1,0 +1,235 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mike Pavone <michael.pavone@discordapp.com>
+Date: Tue, 10 Mar 2026 01:24:45 -0700
+Subject: Ensure the correct opaque/opaque_ref is placed on the avframe when
+ frames are reordered in openh264 decoder
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The libopenh264 wrapper does not currently propagate AVPacket opaque metadata
+onto its output AVFrames in the correct order. Cisco's ISVCDecoder reorders
+B-frames internally and emits them in display order rather than decode order,
+so the Chromium-side timestamp/opaque matching breaks: the wrong AVPacket's
+opaque is attached to each frame, which downstream surfaces as broken PTS
+ordering on H.264 content with B-frames.
+
+This patch:
+  1. Caches AVPacket props (PTS/DTS/opaque/opaque_ref) per input packet in
+     an SVCContext-owned ring (packet_props), bounded by
+     SVC_PACKET_CACHE_MAX_SIZE.
+  2. On each output frame, matches the cached packet by PTS and copies its
+     props onto the AVFrame.
+  3. Registers an FFCodec.flush handler that fully resets the wrapper —
+     Chromium's <video loop> attribute and explicit seeks both call
+     avcodec_flush_buffers(), and without a flush handler the packet_props
+     cache and Cisco's internal DPB/reference state are retained from the
+     prior GOP. The next IDR then fails to decode and the HTML5 video
+     player fires `error`. On Linux desktop (where OpenH264 is the only
+     H.264 path) this surfaces as broken GIF looping and broken manual
+     replay in MediaModal / DiscordVideoPlayer. Cisco's API exposes no
+     way to fully reset the decoder's reference state, so the flush
+     handler tears the decoder down via svc_decode_close and rebuilds it
+     via svc_decode_init.
+
+Removal plan: drop when upstream ffmpeg lands equivalent opaque-propagation
+and .flush support in the libopenh264 wrapper, or when Discord moves the
+Linux H.264 path off OpenH264. Upstream as a follow-up to ffmpeg-devel.
+
+diff --git a/libavcodec/libopenh264dec.c b/libavcodec/libopenh264dec.c
+index b194526034163430eae754ee349a415d338c4221..32fecb68433aa33c05d6b06e472f7533fe7fc590 100644
+--- a/libavcodec/libopenh264dec.c
++++ b/libavcodec/libopenh264dec.c
+@@ -27,6 +27,7 @@
+ #include "libavutil/imgutils.h"
+ #include "libavutil/intreadwrite.h"
+ #include "libavutil/mathematics.h"
++#include "libavutil/mem.h"
+ #include "libavutil/opt.h"
+ 
+ #include "avcodec.h"
+@@ -34,8 +35,14 @@
+ #include "decode.h"
+ #include "libopenh264.h"
+ 
++// Match Chrome's timestamp_map capacity of 128 entries
++#define SVC_PACKET_CACHE_MAX_SIZE 128
++
+ typedef struct SVCContext {
+     ISVCDecoder *decoder;
++    AVPacket **packet_props;     // Array of cached packet properties
++    int packet_props_count;      // Number of cached properties
++    int packet_props_capacity;   // Capacity of packet_props array
+ } SVCContext;
+ 
+ static av_cold int svc_decode_close(AVCodecContext *avctx)
+@@ -44,6 +51,13 @@ static av_cold int svc_decode_close(AVCodecContext *avctx)
+ 
+     if (s->decoder && ff_WelsDestroyDecoder) {
+       ff_WelsDestroyDecoder(s->decoder);
++      s->decoder = NULL;
++    }
++    if (s->packet_props) {
++        for (int i = 0; i < s->packet_props_count; i++) {
++            av_packet_free(&s->packet_props[i]);
++        }
++        av_freep(&s->packet_props);
+     }
+ 
+     return 0;
+@@ -52,6 +66,8 @@ static av_cold int svc_decode_close(AVCodecContext *avctx)
+ static av_cold int svc_decode_init(AVCodecContext *avctx)
+ {
+     SVCContext *s = avctx->priv_data;
++    s->packet_props = NULL;
++    s->packet_props_count = s->packet_props_capacity = 0;
+     SDecodingParam param = { 0 };
+     int log_level;
+     WelsTraceCallback callback_function;
+@@ -89,6 +105,111 @@ static av_cold int svc_decode_init(AVCodecContext *avctx)
+     return 0;
+ }
+ 
++static int svc_cache_packet_props(AVCodecContext *avctx, const AVPacket *pkt)
++{
++    SVCContext *s = avctx->priv_data;
++    int ret;
++
++    // Decoder is likely stalled or matching is failing
++    // If Chrome's own timestamp buffer exceeds this, it'll evict IDs
++    // making matching impossible anyway
++    if (s->packet_props_count >= SVC_PACKET_CACHE_MAX_SIZE) {
++        av_log(avctx, AV_LOG_ERROR,
++               "Packet cache at MAX size (%d). Evicting oldest entry. "
++               "This indicates decoder output is stalled or PTS matching is failing.\n",
++               s->packet_props_count);
++
++        // Evict oldest cached packet (FIFO)
++        // TODO(dyc): or should we just flush here?
++        if (s->packet_props[0]) {
++            av_packet_free(&s->packet_props[0]);
++        }
++        for (int i = 0; i < s->packet_props_count - 1; i++) {
++            s->packet_props[i] = s->packet_props[i + 1];
++        }
++        s->packet_props_count--;
++    }
++
++    if (s->packet_props_count >= s->packet_props_capacity) {
++        int new_capacity = s->packet_props_capacity == 0 ? 16 : s->packet_props_capacity * 2;
++        // No point allocating more than max
++        if (new_capacity > SVC_PACKET_CACHE_MAX_SIZE) {
++            new_capacity = SVC_PACKET_CACHE_MAX_SIZE;
++        }
++        AVPacket **new_props = av_realloc_array(s->packet_props, new_capacity, sizeof(AVPacket *));
++        if (!new_props) {
++            return AVERROR(ENOMEM);
++        }
++        s->packet_props = new_props;
++        s->packet_props_capacity = new_capacity;
++    }
++
++    AVPacket *cached = av_packet_alloc();
++    if (!cached) {
++        return AVERROR(ENOMEM);
++    }
++    ret = av_packet_copy_props(cached, pkt);
++    if (ret < 0) {
++        av_packet_free(&cached);
++        return ret;
++    }
++    cached->pts = pkt->pts;
++    cached->dts = pkt->dts;
++    s->packet_props[s->packet_props_count++] = cached;
++    return 0;
++}
++
++static int svc_copy_packet_props_to_frame(AVCodecContext *avctx, AVFrame *frame, int64_t pts)
++{
++    SVCContext *s = avctx->priv_data;
++    AVPacket *matched = NULL;
++    int matched_idx = -1;
++
++    if (pts != AV_NOPTS_VALUE) {
++        for (int i = 0; i < s->packet_props_count; i++) {
++            if (s->packet_props[i] &&
++                s->packet_props[i]->pts == pts) {
++                matched = s->packet_props[i];
++                matched_idx = i;
++                break;
++            }
++        }
++    }
++
++    if (!matched) {
++        return 0;
++    }
++
++    int ret = 0;
++    if (avctx->flags & AV_CODEC_FLAG_COPY_OPAQUE) {
++        ret = av_buffer_replace(&frame->opaque_ref, matched->opaque_ref);
++        if (ret < 0) {
++            av_log(avctx, AV_LOG_WARNING,
++                   "Failed to copy opaque_ref for pts=%"PRId64": %d\n", pts, ret);
++        } else {
++            frame->opaque = matched->opaque;
++        }
++    }
++
++    av_packet_free(&s->packet_props[matched_idx]);
++    for (int i = matched_idx; i < s->packet_props_count - 1; i++) {
++        s->packet_props[i] = s->packet_props[i + 1];
++    }
++    s->packet_props_count--;
++    return ret;
++}
++
++static void svc_decode_flush(AVCodecContext *avctx)
++{
++    // Cisco's ISVCDecoder has no API to fully reset its internal DPB /
++    // reference state, and the packet_props cache from the prior GOP must
++    // also be dropped. Tearing the decoder down and rebuilding it is the
++    // only reliable reset — close() frees the decoder + packet_props array,
++    // init() recreates the decoder and re-applies trace options.
++    svc_decode_close(avctx);
++    svc_decode_init(avctx);
++}
++
+ static int svc_decode_frame(AVCodecContext *avctx, AVFrame *avframe,
+                             int *got_frame, AVPacket *avpkt)
+ {
+@@ -110,6 +231,7 @@ static int svc_decode_frame(AVCodecContext *avctx, AVFrame *avframe,
+         return 0;
+ #endif
+     } else {
++        svc_cache_packet_props(avctx, avpkt);
+         info.uiInBsTimeStamp = avpkt->pts;
+ #if OPENH264_VER_AT_LEAST(1, 4)
+         // Contrary to the name, DecodeFrameNoDelay actually does buffering
+@@ -148,6 +270,14 @@ static int svc_decode_frame(AVCodecContext *avctx, AVFrame *avframe,
+ 
+     avframe->pts     = info.uiOutYuvTimeStamp;
+     avframe->pkt_dts = AV_NOPTS_VALUE;
++
++    // Associates the output frame with the correct input packet to handle b-frame reordering
++    ret = svc_copy_packet_props_to_frame(avctx, avframe, avframe->pts);
++    if (ret < 0) {
++        av_log(avctx, AV_LOG_ERROR, "Failed to copy packet props to frame: %d\n", ret);
++        av_frame_unref(avframe);
++        return ret;
++    }
+ #if OPENH264_VER_AT_LEAST(1, 7)
+     (*s->decoder)->GetOption(s->decoder, DECODER_OPTION_PROFILE, &opt);
+     avctx->profile = opt;
+@@ -168,6 +298,7 @@ const FFCodec ff_libopenh264_decoder = {
+     .init           = svc_decode_init,
+     FF_CODEC_DECODE_CB(svc_decode_frame),
+     .close          = svc_decode_close,
++    .flush          = svc_decode_flush,
+     .p.capabilities = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_DR1,
+     .caps_internal  = FF_CODEC_CAP_SETS_PKT_DTS |
+                       FF_CODEC_CAP_INIT_CLEANUP,

@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jozsef Vass <jozsef@discordapp.com>
+Date: Fri, 13 Mar 2026 23:26:41 +0000
+Subject: remove ffmpeg h264 decoder and parser
+
+
+diff --git a/media/ffmpeg/ffmpeg_common.cc b/media/ffmpeg/ffmpeg_common.cc
+index 6b21e32e71142f03647e9cd01c1dfe3c17914b82..0a9ed1e3e8ba6bbe184181ff9234f5b8ed688ef7 100644
+--- a/media/ffmpeg/ffmpeg_common.cc
++++ b/media/ffmpeg/ffmpeg_common.cc
+@@ -69,7 +69,7 @@ VideoColorSpace GetGuessedColorSpace(const VideoColorSpace& color_space) {
+ const char* GetAllowedVideoDecoders() {
+   // This should match the configured lists in //third_party/ffmpeg.
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS) && BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
+-  return "h264,h264_mf,libopenh264";
++  return "h264_mf,libopenh264";
+ #else
+   return "";
+ #endif
+diff --git a/media/ffmpeg/scripts/build_ffmpeg.py b/media/ffmpeg/scripts/build_ffmpeg.py
+index f0bbb9071ccc49cf586dcb22c52cb41ce4dbc1f5..f3c23999abd66086a79d5f4caeebe479c5958172 100755
+--- a/media/ffmpeg/scripts/build_ffmpeg.py
++++ b/media/ffmpeg/scripts/build_ffmpeg.py
+@@ -995,11 +995,9 @@ def ConfigureAndBuild(target_arch, target_os, host_os, host_arch,
+ 
+     # Google Chrome specific configuration.
+     configure_flags['Chrome'].extend([
+-        # TODO(dyc): remove h264 after h264_mf is rolled out
+-        '--enable-decoder=aac,h264',
++        '--enable-decoder=aac',
+         '--enable-demuxer=aac',
+-        # TODO(dyc): remove h264 after h264_mf is rolled out
+-        '--enable-parser=aac,h264',
++        '--enable-parser=aac',
+         '--enable-muxer=mp4',
+         '--enable-encoder=aac',
+         '--enable-protocol=file',

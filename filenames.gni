@@ -281,6 +281,8 @@ filenames = {
     "discord/electron_video.cc",
     "discord/module.cc",
     "discord/overlay.h",
+    "discord/script_compilation_timing.cc",
+    "discord/script_compilation_timing.h",
 
     "shell/app/command_line_args.cc",
     "shell/app/command_line_args.h",

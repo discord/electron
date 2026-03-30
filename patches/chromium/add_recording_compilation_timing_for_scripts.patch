@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Mon, 30 Mar 2026 15:17:45 -0700
+Subject: Add recording compilation timing for scripts
+
+
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+index 0e597bdec7fbe7cd0904692a8d92e2ef8e421ba7..ed5890c92719e47719e57e40d19c1586b1fd8fa0 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
++++ b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.cc
+@@ -115,6 +115,23 @@ v8::MaybeLocal<v8::Value> ThrowStackOverflowExceptionIfNeeded(
+   return result;
+ }
+ 
++// Callback for script compilation timing observers (e.g. Electron).
++// Set once during renderer init, read on the main thread during compile —
++// no synchronization needed.
++static V8ScriptRunner::CompilationTimingCallback g_compilation_timing_callback =
++    nullptr;
++
++void RecordCompilationTiming(
++    const String& url,
++    const v8::ScriptCompiler::CompilationDetails& details,
++    bool streamed) {
++  if (g_compilation_timing_callback) {
++    g_compilation_timing_callback(
++        url.Utf8(), details.foreground_time_in_microseconds,
++        details.background_time_in_microseconds, streamed);
++  }
++}
++
+ v8::MaybeLocal<v8::Script> CompileScriptInternal(
+     v8::Isolate* isolate,
+     ScriptState* script_state,
+@@ -143,9 +160,13 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
+             streamer->Source(v8::ScriptType::kClassic)) {
+       // Final compile call for a streamed compilation.
+       // Streaming compilation may involve use of code cache.
+-      // TODO(leszeks): Add compile timer to streaming compilation.
+-      return v8::ScriptCompiler::Compile(script_state->GetContext(), source,
+-                                         code, origin);
++      v8::MaybeLocal<v8::Script> script =
++          v8::ScriptCompiler::Compile(script_state->GetContext(), source,
++                                      code, origin);
++      RecordCompilationTiming(classic_script.SourceUrl(),
++                              source->compilation_details(),
++                              /*streamed=*/true);
++      return script;
+     }
+   }
+ 
+@@ -162,6 +183,9 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
+     v8::MaybeLocal<v8::Script> script =
+         v8::ScriptCompiler::Compile(script_state->GetContext(), &source,
+                                     v8::ScriptCompiler::kConsumeCodeCache);
++    RecordCompilationTiming(classic_script.SourceUrl(),
++                            source.GetCompilationDetails(),
++                            /*streamed=*/false);
+     return script;
+   }
+ 
+@@ -271,6 +295,9 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
+     v8::MaybeLocal<v8::Script> script =
+         v8::ScriptCompiler::Compile(script_state->GetContext(), &source,
+                                     v8::ScriptCompiler::kConsumeCodeCache);
++    RecordCompilationTiming(classic_script.SourceUrl(),
++                            source.GetCompilationDetails(),
++                            /*streamed=*/false);
+     cache_handler->DidUseCodeCache(cached_data->rejected);
+     if (cached_data->rejected) {
+       // The ScriptState has an associated context. We expect the current
+@@ -310,6 +337,12 @@ int GetMicrotasksScopeDepth(v8::Isolate* isolate,
+ 
+ }  // namespace
+ 
++// static
++void V8ScriptRunner::SetCompilationTimingCallback(
++    CompilationTimingCallback callback) {
++  g_compilation_timing_callback = callback;
++}
++
+ v8::MaybeLocal<v8::Script> V8ScriptRunner::CompileScript(
+     ScriptState* script_state,
+     const ClassicScript& classic_script,
+diff --git a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.h b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.h
+index 38b7b377f2f385575e23fb2a024dd4d584080f2d..bb4b768aa5c08e1396e46514b7e0d3550edff21f 100644
+--- a/third_party/blink/renderer/bindings/core/v8/v8_script_runner.h
++++ b/third_party/blink/renderer/bindings/core/v8/v8_script_runner.h
+@@ -26,7 +26,9 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_V8_SCRIPT_RUNNER_H_
+ #define THIRD_PARTY_BLINK_RENDERER_BINDINGS_CORE_V8_V8_SCRIPT_RUNNER_H_
+ 
++#include <cstdint>
+ #include <optional>
++#include <string>
+ 
+ #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
+ #include "third_party/blink/renderer/core/core_export.h"
+@@ -54,6 +56,13 @@ class CORE_EXPORT V8ScriptRunner final {
+   STATIC_ONLY(V8ScriptRunner);
+ 
+  public:
++  // Callback invoked after each script compilation with per-script timing.
++  // Parameters: url, foreground_time_us, background_time_us, streamed.
++  using CompilationTimingCallback = void (*)(const std::string& url,
++                                             int64_t foreground_time_us,
++                                             int64_t background_time_us,
++                                             bool streamed);
++  static void SetCompilationTimingCallback(CompilationTimingCallback callback);
+   // Rethrow errors flag in
+   // https://html.spec.whatwg.org/C/#run-a-classic-script
+   // implemented by CompileAndRunScript() and

@@ -51,6 +51,8 @@
 #include "third_party/blink/public/web/web_script_source.h"
 #include "third_party/blink/public/web/web_security_policy.h"
 #include "third_party/blink/public/web/web_view.h"
+#include "discord/script_compilation_timing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"  // nogncheck
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"  // nogncheck
 #include "third_party/blink/renderer/platform/media/multi_buffer_data_source.h"  // nogncheck
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"  // nogncheck
@@ -219,6 +221,14 @@ bool RendererClientBase::ShouldLoadPreload(
 }
 
 void RendererClientBase::RenderThreadStarted() {
+  // Register callback to collect per-script V8 compilation timing.
+  blink::V8ScriptRunner::SetCompilationTimingCallback(
+      [](const std::string& url, int64_t foreground_time_us,
+         int64_t background_time_us, bool streamed) {
+        discord::ScriptCompilationTimingCollector::GetInstance().Record(
+            url, foreground_time_us, background_time_us, streamed);
+      });
+
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
   // Enable MessagePort close event by default.

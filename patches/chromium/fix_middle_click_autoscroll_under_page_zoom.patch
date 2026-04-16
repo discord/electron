@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Eric Lee <eric.lee@discordapp.com>
+Date: Thu, 16 Apr 2026 11:01:48 -0700
+Subject: fix: middle_click autoscroll under page zoom
+
+Use screen device_scale_factor instead of DevicePixelRatio() for the
+AutoscrollStart position scaling. DevicePixelRatio() includes the page
+zoom factor, causing a coordinate mismatch when zoom != OS DPR.
+
+diff --git a/third_party/blink/renderer/core/page/autoscroll_controller.cc b/third_party/blink/renderer/core/page/autoscroll_controller.cc
+index be77bb1185efd4c34310dd2e97824dd2ed214331..537144d9fbff50ddfbe35a3f2faf91823467a481 100644
+--- a/third_party/blink/renderer/core/page/autoscroll_controller.cc
++++ b/third_party/blink/renderer/core/page/autoscroll_controller.cc
+@@ -29,6 +29,7 @@
+ 
+ #include "third_party/blink/renderer/core/page/autoscroll_controller.h"
+ 
++#include "ui/display/screen_info.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/local_frame_client.h"
+ #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+@@ -452,8 +453,10 @@ void AutoscrollController::StartMiddleClickAutoscroll(
+         last_velocity_, can_scroll_vertically, can_scroll_horizontally));
+   }
+   page_->GetChromeClient().SetCursorOverridden(true);
++  float screen_dsf =
++      page_->GetChromeClient().GetScreenInfo(*frame).device_scale_factor;
+   page_->GetChromeClient().AutoscrollStart(
+-      gfx::ScalePoint(position, 1 / frame->DevicePixelRatio()), frame);
++      gfx::ScalePoint(position, 1 / screen_dsf), frame);
+ }
+ 
+ void AutoscrollController::Animate() {

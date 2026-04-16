@@ -334,3 +334,4 @@ remove_hevc_decode_from_ffmpeg.patch
 enable_openh264_dynamic_loading_for_linux_x64.patch
 remove_ffmpeg_h264_decoder_and_parser.patch
 add_recording_compilation_timing_for_scripts.patch
+fix_middle_click_autoscroll_under_page_zoom.patch

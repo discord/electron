@@ -1,0 +1,194 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Mon, 11 May 2026 22:21:32 +0000
+Subject: Add guards for disabled compose, pdf and printing deps
+
+
+diff --git a/chrome/browser/contextual_tasks/BUILD.gn b/chrome/browser/contextual_tasks/BUILD.gn
+index 3f71971e825899893068fc1d900f25d59de647c7..f52c24c6310e4067e22cdace78bac86195500422 100644
+--- a/chrome/browser/contextual_tasks/BUILD.gn
++++ b/chrome/browser/contextual_tasks/BUILD.gn
+@@ -5,6 +5,7 @@
+ import("//build/config/android/config.gni")
+ import("//components/signin/features.gni")
+ import("//mojo/public/tools/bindings/mojom.gni")
++import("//pdf/features.gni")
+ import("//third_party/protobuf/proto_library.gni")
+ 
+ if (is_android) {
+@@ -328,7 +329,6 @@ source_set("ui_impl") {
+ 
+   if (!is_android) {
+     deps += [
+-      "//chrome/browser/pdf",
+       "//chrome/browser/resources/contextual_tasks:resources",
+       "//chrome/browser/tab_list",
+       "//chrome/browser/ui/contextual_search",
+@@ -351,6 +351,10 @@ source_set("ui_impl") {
+       "//url",
+     ]
+   }
++
++  if (enable_pdf) {
++    deps += [ "//chrome/browser/pdf" ]
++  }
+ }
+ 
+ mojom("mojo_bindings") {
+diff --git a/chrome/browser/renderer_context_menu/BUILD.gn b/chrome/browser/renderer_context_menu/BUILD.gn
+index a456a87edcb8525e84ebd35f2bb0d9fc49e2afe4..5506766265fcf3e474f62a6ae354e34612adabcf 100644
+--- a/chrome/browser/renderer_context_menu/BUILD.gn
++++ b/chrome/browser/renderer_context_menu/BUILD.gn
+@@ -2,8 +2,10 @@
+ # Use of this source code is governed by a BSD-style license that can be
+ # found in the LICENSE file.
+ 
++import("//components/compose/features.gni")
+ import("//components/spellcheck/spellcheck_build_features.gni")
+ import("//extensions/buildflags/buildflags.gni")
++import("//pdf/features.gni")
+ import("//printing/buildflags/buildflags.gni")
+ 
+ source_set("renderer_context_menu") {
+@@ -89,7 +91,6 @@ source_set("impl") {
+       "//chrome/browser/apps/app_service",
+       "//chrome/browser/apps/platform_apps",
+       "//chrome/browser/autocomplete",
+-      "//chrome/browser/compose",
+       "//chrome/browser/custom_handlers",
+       "//chrome/browser/devtools",
+       "//chrome/browser/glic",
+@@ -98,7 +99,6 @@ source_set("impl") {
+       "//chrome/browser/glic/resources:browser_resources",
+       "//chrome/browser/lens/region_search",
+       "//chrome/browser/media/router:media_router_feature",
+-      "//chrome/browser/pdf",
+       "//chrome/browser/predictors",
+       "//chrome/browser/prefs",
+       "//chrome/browser/preloading:prefs",
+@@ -147,6 +147,14 @@ source_set("impl") {
+       "//url",
+     ]
+ 
++    if (enable_compose) {
++      deps += [ "//chrome/browser/compose" ]
++    }
++
++    if (enable_pdf) {
++      deps += [ "//chrome/browser/pdf" ]
++    }
++
+     if (enable_print_preview) {
+       deps += [ "//chrome/browser/printing" ]
+     }
+@@ -232,7 +240,9 @@ static_library("test_support") {
+       "render_view_context_menu_test_util.cc",
+     ]
+     public_deps += [ "//extensions/buildflags" ]
+-    deps += [ "//chrome/browser/compose" ]
++    if (enable_compose) {
++      deps += [ "//chrome/browser/compose" ]
++    }
+   }
+ 
+   if (is_chromeos) {
+@@ -325,9 +335,7 @@ if (!is_android) {
+       ":test_support",
+       "//base/test:test_support",
+       "//chrome/browser",
+-      "//chrome/browser/compose:test_support",
+       "//chrome/browser/devtools",
+-      "//chrome/browser/pdf:pdf_extension_test_utils",
+       "//chrome/browser/search_engines",
+       "//chrome/browser/spellchecker",
+       "//chrome/browser/ui:ui_features",
+@@ -351,6 +359,14 @@ if (!is_android) {
+       "//url",
+     ]
+ 
++    if (enable_pdf) {
++      deps += [ "//chrome/browser/pdf:pdf_extension_test_utils" ]
++    }
++
++    if (enable_compose) {
++      deps += [ "//chrome/browser/compose:test_support" ]
++    }
++
+     if (is_linux || is_chromeos || is_win) {
+       sources += [
+         # This test is for the spelling options submenu that's only for
+diff --git a/chrome/browser/ui/blocked_content/BUILD.gn b/chrome/browser/ui/blocked_content/BUILD.gn
+index 5b42ca4740d35d5a661e810b51a1a6eee8b9affd..80ad2cee12d8f879773f45ba8e51dfbd85943721 100644
+--- a/chrome/browser/ui/blocked_content/BUILD.gn
++++ b/chrome/browser/ui/blocked_content/BUILD.gn
+@@ -5,6 +5,7 @@
+ import("//build/config/chromeos/args.gni")
+ import("//build/config/ozone.gni")
+ import("//extensions/buildflags/buildflags.gni")
++import("//printing/buildflags/buildflags.gni")
+ 
+ assert(is_win || is_mac || is_linux || is_chromeos || is_android)
+ 
+@@ -110,7 +111,6 @@ if (!is_android && !is_chromeos_device) {
+     deps = [
+       ":blocked_content",
+       "//chrome/browser/content_settings:content_settings_factory",
+-      "//chrome/browser/printing",
+       "//chrome/browser/search_engines",
+       "//chrome/browser/ui/location_bar",
+       "//chrome/browser/web_applications:web_applications_test_support",
+@@ -120,6 +120,10 @@ if (!is_android && !is_chromeos_device) {
+       "//components/embedder_support",
+       "//components/javascript_dialogs",
+     ]
++
++    if (enable_printing) {
++      deps += [ "//chrome/browser/printing" ]
++    }
+   }
+ }
+ 
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index c16980066ae0afb63fad4749344ae6c475681ab3..5f643122029bb0782f46929c7d041a3c73fd4991 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -2694,7 +2694,6 @@ if (!is_android) {
+       "//chrome/browser/picture_in_picture",
+       "//chrome/browser/picture_in_picture:browser_tests",
+       "//chrome/browser/picture_in_picture:test_support_ui",
+-      "//chrome/browser/plugins:browser_tests",
+       "//chrome/browser/plus_addresses:browser_tests",
+       "//chrome/browser/policy:browser_tests",
+       "//chrome/browser/policy:test_support",
+@@ -3273,6 +3272,10 @@ if (!is_android) {
+       "//v8",
+     ]
+ 
++    if (enable_plugins) {
++      deps += [ "//chrome/browser/plugins:browser_tests" ]
++    }
++
+     if (enable_screen_ai_service) {
+       deps += [
+         "//chrome/browser/screen_ai:screen_ai_install_state",
+@@ -5018,7 +5021,6 @@ if (!is_android) {
+         "//chrome/browser/extensions/api/braille_display_private:controller",
+         "//chrome/browser/extensions/api/messaging:browser_tests",
+         "//chrome/browser/extensions/api/messaging:test_support",
+-        "//chrome/browser/extensions/api/pdf_viewer_private:browser_tests",
+         "//chrome/browser/hid",
+         "//chrome/browser/prefetch",
+         "//chrome/browser/tab_list",
+@@ -5066,6 +5068,12 @@ if (!is_android) {
+         "//ui/views:test_support",
+       ]
+ 
++      if (enable_pdf) {
++        deps += [
++          "//chrome/browser/extensions/api/pdf_viewer_private:browser_tests",
++        ]
++      }
++
+       # TODO(417228688): Remove when the following tests get modularized:
+       # - chrome_serial_browsertest.cc
+       # - controlled_frame_disabled_permission_browsertest.cc

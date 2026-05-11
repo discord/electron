@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Mon, 11 May 2026 22:25:26 +0000
+Subject: Add missing CoreGraphics include
+
+
+diff --git a/skia/ext/skia_utils_mac.mm b/skia/ext/skia_utils_mac.mm
+index c7b37ebcdfefa64a9ee82e85dfd1cb4e602754a9..3dbf2f03d032be8776641bebd480527816db8e1e 100644
+--- a/skia/ext/skia_utils_mac.mm
++++ b/skia/ext/skia_utils_mac.mm
+@@ -5,6 +5,7 @@
+ #include "skia/ext/skia_utils_mac.h"
+ 
+ #import <AppKit/AppKit.h>
++#import <CoreGraphics/CoreGraphics.h>
+ #include <stdint.h>
+ 
+ #include <memory>

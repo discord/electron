@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kamilla <kamilla@discordapp.com>
+Date: Thu, 14 May 2026 11:01:55 -0400
+Subject: fix requestWindow to allow opening documentPip
+
+documentPictureInPicture.requestWindow() fails with 'Internal error: no window' when called via Electron's webContents.executeJavaScript. The V8 ScriptState it creates does not have a proper ExecutionContext binding to the page's LocalDOMWindow
+
+DocumentPictureInPicture is a Supplement<LocalDOMWindow> - it is created and permanently attached to a specific LocalDOMWindow. GetSupplementable() returns that window directly, without depending on the caller's ScriptState.
+
+diff --git a/third_party/blink/renderer/modules/document_picture_in_picture/document_picture_in_picture.cc b/third_party/blink/renderer/modules/document_picture_in_picture/document_picture_in_picture.cc
+index 4831fa327027c2f42636001a2aeedecfe1057ed4..39d341f2ef06c9ab8e32d86ca00912b10c3935dd 100644
+--- a/third_party/blink/renderer/modules/document_picture_in_picture/document_picture_in_picture.cc
++++ b/third_party/blink/renderer/modules/document_picture_in_picture/document_picture_in_picture.cc
+@@ -47,7 +47,7 @@ ScriptPromise<DOMWindow> DocumentPictureInPicture::requestWindow(
+     ScriptState* script_state,
+     DocumentPictureInPictureOptions* options,
+     ExceptionState& exception_state) {
+-  LocalDOMWindow* dom_window = LocalDOMWindow::From(script_state);
++  LocalDOMWindow* dom_window = GetSupplementable();
+   if (!dom_window) {
+     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                       "Internal error: no window");

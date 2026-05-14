@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Thu, 14 May 2026 16:33:52 +0000
+Subject: Add missing lock annotation
+
+
+diff --git a/services/webnn/ort/environment.h b/services/webnn/ort/environment.h
+index 4377a205edfa5e6a62bfa1b88875c0146298b054..fb088506fac3ef5bb4e51162b1df6992c46afbd2 100644
+--- a/services/webnn/ort/environment.h
++++ b/services/webnn/ort/environment.h
+@@ -143,7 +143,7 @@ class COMPONENT_EXPORT(WEBNN_SERVICE) Environment
+  private:
+   static base::expected<scoped_refptr<Environment>, std::string> Create(
+       const base::flat_map<std::string, mojom::EpPackageInfoPtr>&
+-          ep_package_info_map);
++          ep_package_info_map) EXCLUSIVE_LOCKS_REQUIRED(GetLock());
+ 
+   static base::expected<scoped_refptr<Environment>, std::string>
+   CreateForCompilerProcess(const base::FilePath& ep_library_path,

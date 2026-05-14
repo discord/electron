@@ -337,3 +337,4 @@ add_recording_compilation_timing_for_scripts.patch
 fix_middle_click_autoscroll_under_page_zoom.patch
 add_guards_for_disabled_compose_pdf_and_printing_deps.patch
 add_missing_coregraphics_include.patch
+add_missing_lock_annotation.patch

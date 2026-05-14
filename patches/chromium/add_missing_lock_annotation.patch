@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Thu, 14 May 2026 16:33:52 +0000
+Subject: Add missing lock annotation
+
+
+diff --git a/services/webnn/ort/environment.h b/services/webnn/ort/environment.h
+index 4929a5a8395544eeeea6629243f539b48bddbb05..b16b36f3739855318cf6dadf19bb507c82c8b81c 100644
+--- a/services/webnn/ort/environment.h
++++ b/services/webnn/ort/environment.h
+@@ -94,7 +94,7 @@ class Environment : public base::subtle::RefCountedThreadSafeBase {
+   static base::expected<scoped_refptr<Environment>, std::string> Create(
+       const gpu::GpuFeatureInfo& gpu_feature_info,
+       const base::flat_map<std::string, mojom::EpPackageInfoPtr>&
+-          ep_package_info_map);
++          ep_package_info_map) EXCLUSIVE_LOCKS_REQUIRED(GetLock());
+ 
+   ~Environment();
+ 

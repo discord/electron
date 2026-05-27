@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Harris <chris.harris@discordapp.com>
+Date: Wed, 27 May 2026 09:58:55 -0700
+Subject: gpu_info_util: close X11 display on success path
+
+The success path in GetNvidiaDriverVersionWithXNVCtrl returned without
+calling XCloseDisplay, leaking the X11 connection opened at the top of
+the function. On NVIDIA systems where the query succeeds this happens
+on every call, which over time can exhaust X server client slots and
+file descriptors.
+
+Move (or rather add) the cleanup to the early-return path so the
+connection is closed regardless of outcome.
+
+diff --git a/src/gpu_info_util/SystemInfo_x11.cpp b/src/gpu_info_util/SystemInfo_x11.cpp
+index dcd4d17e7103e8c25f44ae64d01dc6f4750aa514..304a58ba721a1dc080e65ade39c8d7264cea05b6 100644
+--- a/src/gpu_info_util/SystemInfo_x11.cpp
++++ b/src/gpu_info_util/SystemInfo_x11.cpp
+@@ -43,6 +43,7 @@ bool GetNvidiaDriverVersionWithXNVCtrl(std::string *version)
+                 ASSERT(buffer != nullptr);
+                 *version = buffer;
+                 XFree(buffer);
++                XCloseDisplay(display);
+                 return true;
+             }
+         }

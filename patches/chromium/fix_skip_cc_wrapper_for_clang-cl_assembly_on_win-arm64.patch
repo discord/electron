@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Harris <chris.harris@discordapp.com>
+Date: Thu, 11 Jun 2026 15:29:55 -0700
+Subject: fix: skip cc_wrapper for clang-cl assembly on win-arm64
+
+sccache (cc_wrapper) can't wrap clang-cl when it assembles boringssl .S
+files: the gcc-style -c -o{{output}} invocation makes sccache mis-derive
+the .obj path and fail with "failed to zip up compiler outputs". Route
+the asm tool around the wrapper (reclient still wraps it fine).
+
+diff --git a/build/toolchain/win/toolchain.gni b/build/toolchain/win/toolchain.gni
+index a8e65d09341ed3ff5cd3666e734d17c5b01690a3..1b05bf02f6eca14aad99267bdb888365f8a31923 100644
+--- a/build/toolchain/win/toolchain.gni
++++ b/build/toolchain/win/toolchain.gni
+@@ -275,7 +275,15 @@ template("msvc_toolchain") {
+ 
+       if (toolchain_args.current_cpu == "arm64") {
+         if (toolchain_is_clang) {
+-          ml = "${cl_prefix}${_clang_bin_path}/clang-cl${_exe} --target=aarch64-pc-windows"
++          # sccache (cc_wrapper) can't wrap clang-cl assembling .S files: gcc-style
++          # -o makes it mis-derive the .obj path -> win-arm64 boringssl build fails.
++          # Keep the asm tool off the wrapper (reclient handles assembly fine).
++          if (toolchain_cc_wrapper != "" && !toolchain_uses_reclient) {
++            asm_cl_prefix = ""
++          } else {
++            asm_cl_prefix = cl_prefix
++          }
++          ml = "${asm_cl_prefix}${_clang_bin_path}/clang-cl${_exe} --target=aarch64-pc-windows"
+           if (host_os == "win") {
+             # Flip the slashes so that copy/paste of the command works.
+             ml = string_replace(ml, "/", "\\")

@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dennis Cheng <dennis.cheng@discordapp.com>
+Date: Wed, 1 Jul 2026 21:56:22 +0000
+Subject: fix: recover from RenderProcessHost reuse race instead of
+ CHECK-crashing the browser process
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Avoid CHECK-crashing the browser process when a renderer process host is
+re-initialized from inside a render-process-gone handler (e.g.
+webContents.reload() called synchronously on renderer crash, as the Discord
+client does).
+
+Chromium 148 (crrev.com/c/7031539) added a launch-time CHECK in
+RendererStartupHelper::OnRenderProcessLaunched asserting the process was
+registered at OnRenderProcessHostCreated. A synchronous reload re-enters
+RenderProcessHost::Init() mid-ProcessDied observer iteration: the re-fired
+OnRenderProcessHostCreated no-ops because the dead process's map entry is still
+present, UntrackProcess then erases it, and the CHECK aborts when the new
+process finishes launching.
+
+Upstream already fixed this exact reuse race on Android (crrev.com/c/7330559)
+by re-registering the process — restoring the mojom::Renderer remote and
+observer without re-running full InitializeProcess (which could re-send
+loaded-extension state). This patch extends that recovery to all platforms. The
+skipped re-initialization only matters for renderers hosting extension content,
+which doesn't apply to Discord's windows.
+
+diff --git a/extensions/browser/renderer_startup_helper.cc b/extensions/browser/renderer_startup_helper.cc
+index cacaf4fe5faf634e263546bef9111b8841ec1297..0df1221d8a8d24ccc248c8f465c0a0e25e0ef98a 100644
+--- a/extensions/browser/renderer_startup_helper.cc
++++ b/extensions/browser/renderer_startup_helper.cc
+@@ -266,8 +266,7 @@ void RendererStartupHelper::OnRenderProcessLaunched(
+     // extensions should have already been initialized in
+     // OnRenderProcessHostCreated(), if it corresponds to the same context.
+     ExtensionsBrowserClient* client = ExtensionsBrowserClient::Get();
+-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
+-    // On Android and ChromeOS, handle race condition during process restart:
++    // Handle race condition during process restart:
+     // 1. OnRenderProcessHostCreated() initializes extensions and populates
+     // process_mojo_map_.
+     // 2. Process startup fails in some cases.
+@@ -280,10 +279,6 @@ void RendererStartupHelper::OnRenderProcessLaunched(
+         client->IsSameContext(browser_context_, host->GetBrowserContext())) {
+       RegisterProcess(host);
+     }
+-#else
+-    CHECK(GetRenderer(host) != nullptr ||
+-          !client->IsSameContext(browser_context_, host->GetBrowserContext()));
+-#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS)
+     return;
+   }
+   // Otherwise, we should *not* have initialized the host yet.

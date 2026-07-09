@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: dyc <dennischengo@gmail.com>
+Date: Thu, 9 Jul 2026 20:53:45 +0000
+Subject: fix: preload oleaut32.dll before sandbox lockdown
+
+The sandboxed proxy-resolver process exits through the normal CRT shutdown
+path, and a CRT atexit callback there makes the first call into
+delay-loaded oleaut32.dll. Post-lockdown, LoadLibrary fails with
+ERROR_ACCESS_DENIED and Chromium's delay-load failure hook crashes the
+process (crbug.com/1320845).
+
+Add a warmup alongside WarmupRandomnessInfrastructure() in
+sandbox_warmup.cc, called from utility_main.cc for the proxy resolver
+process before LowerToken().
+
+diff --git a/content/utility/BUILD.gn b/content/utility/BUILD.gn
+index ff11e0d050535122e87809b468bc5415afabd1ce..7e3caa74256a65d912dd35762e68cbf9aeed6953 100644
+--- a/content/utility/BUILD.gn
++++ b/content/utility/BUILD.gn
+@@ -66,6 +66,7 @@ source_set("utility") {
+     "//services/on_device_model:on_device_model_service",
+     "//services/on_device_model/public/cpp",
+     "//services/on_device_model/public/mojom",
++    "//services/proxy_resolver/public/mojom",
+     "//services/screen_ai/buildflags",
+     "//services/service_manager/public/cpp",
+     "//services/service_manager/public/mojom",
+diff --git a/content/utility/utility_main.cc b/content/utility/utility_main.cc
+index 3eb18f885a6d2051d517def6d06a09f02c00069f..3f1ff1f805dccfd23cc1c664adba80c66c0933a1 100644
+--- a/content/utility/utility_main.cc
++++ b/content/utility/utility_main.cc
+@@ -41,6 +41,7 @@
+ #include "sandbox/policy/sandbox.h"
+ #include "sandbox/policy/sandbox_type.h"
+ #include "services/on_device_model/public/mojom/on_device_model_service.mojom.h"
++#include "services/proxy_resolver/public/mojom/proxy_resolver.mojom.h"
+ #include "services/tracing/public/cpp/trace_startup.h"
+ #include "services/video_capture/public/mojom/video_capture_service.mojom.h"
+ 
+@@ -482,6 +483,10 @@ int UtilityMain(MainFunctionParams parameters) {
+ 
+     sandbox::policy::WarmupRandomnessInfrastructure();
+ 
++    if (utility_sub_type == proxy_resolver::mojom::ProxyResolverFactory::Name_) {
++      sandbox::policy::WarmupOleAut32();
++    }
++
+     g_utility_target_services->LowerToken();
+   }
+ #endif
+diff --git a/sandbox/policy/win/sandbox_warmup.cc b/sandbox/policy/win/sandbox_warmup.cc
+index 4cfcf6e6a9e8d092608ba017b3eb04af1a14dffd..127a8ec7b765b9968aaedb82116779a6db7f3d46 100644
+--- a/sandbox/policy/win/sandbox_warmup.cc
++++ b/sandbox/policy/win/sandbox_warmup.cc
+@@ -29,6 +29,10 @@ void WarmupRandomnessInfrastructure() {
+   sandbox::WarmupRandomnessInfrastructure();
+ }
+ 
++void WarmupOleAut32() {
++  ::LoadLibraryW(L"oleaut32.dll");
++}
++
+ bool HookDwriteGetUserDefaultLCID() {
+   // Should not be called twice.
+   static bool first_call = true;
+diff --git a/sandbox/policy/win/sandbox_warmup.h b/sandbox/policy/win/sandbox_warmup.h
+index d3f18e6d96e589b8f6baf9798a3bc71051bf029b..a53db1f5d5df05419e2813e585b8bb7978510dd3 100644
+--- a/sandbox/policy/win/sandbox_warmup.h
++++ b/sandbox/policy/win/sandbox_warmup.h
+@@ -19,6 +19,16 @@ SANDBOX_POLICY_EXPORT void WarmupRandomnessInfrastructure();
+ // or the hooks could not be emplaced. If emplaced, the hooks are never removed.
+ SANDBOX_POLICY_EXPORT bool HookDwriteGetUserDefaultLCID();
+ 
++// Call in the sandboxed proxy resolver process before target lockdown.
++// oleaut32.dll is delay-loaded (see https://crbug.com/439521000), and the
++// proxy resolver's CRT atexit teardown makes its first call into a
++// delay-loaded oleaut32 export during clean shutdown. A post-lockdown
++// LoadLibrary for that first call fails with ERROR_ACCESS_DENIED, and
++// Chromium's delay-load failure hook then crashes the process (see
++// https://crbug.com/1320845). Loading the DLL here means later delay-loads
++// resolve from the loader's module table without touching the filesystem.
++SANDBOX_POLICY_EXPORT void WarmupOleAut32();
++
+ }  // namespace sandbox::policy
+ 
+ #endif  // SANDBOX_POLICY_WIN_SANDBOX_WARMUP_H_

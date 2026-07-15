@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 15 Jul 2026 08:48:16 -0700
+Subject: fix: prevent Chromium typescript resolving imports above the repo
+ root
+
+diff --git a/tools/typescript/ts_definitions.py b/tools/typescript/ts_definitions.py
+index 8f76ae0a6a30dbee9a0ec25845c72628d379bcf1..449f0888c7351d6a80644addf983426b8f16ebe6 100644
+--- a/tools/typescript/ts_definitions.py
++++ b/tools/typescript/ts_definitions.py
+@@ -58,12 +58,19 @@ def main(argv):
+              in tsconfig['compilerOptions']['typeRoots']]
+ 
+   # Handle custom path mappings, for example chrome://resources/ URLs.
++  path_mappings = collections.defaultdict(list)
+   if args.path_mappings is not None:
+-    path_mappings = collections.defaultdict(list)
+     for m in args.path_mappings:
+       mapping = m.split('|')
+       path_mappings[mapping[0]].append(os.path.join('./', mapping[1]))
+-    tsconfig['compilerOptions']['paths'] = path_mappings
++  # Resolve bare specifiers against the vendored node_modules, then a terminal stub, so resolution never walks up into the monorepo root; see ts_library.py.
++  path_mappings['*'].append(os.path.relpath(
++      os.path.join(_SRC_DIR, 'third_party', 'node', 'node_modules', '*'),
++      args.gen_dir))
++  path_mappings['*'].append(os.path.relpath(
++      os.path.join(_SRC_DIR, 'tools', 'typescript', 'unresolved_module_stub.d.ts'),
++      args.gen_dir))
++  tsconfig['compilerOptions']['paths'] = path_mappings
+ 
+   if args.deps is not None:
+     tsconfig['references'] = [{'path': dep} for dep in args.deps]
+diff --git a/tools/typescript/ts_library.py b/tools/typescript/ts_library.py
+index 3e89c99a8d6d2e4217a6bd1690ef2b8804871cbb..f096043b190bc046751f107743ae801bf7b55152 100644
+--- a/tools/typescript/ts_library.py
++++ b/tools/typescript/ts_library.py
+@@ -230,6 +230,12 @@ def main(argv):
+           f'non-Ash target {target_path}'
+       path_mappings[mapping[0]].append(os.path.join('./', mapping[1]))
+ 
++  # Resolve bare specifiers against the vendored node_modules, then a terminal stub, so nodenext never walks up into the monorepo root node_modules.
++  path_mappings['*'].append(os.path.join(
++      './', args.root_src_dir, 'third_party/node/node_modules', '*'))
++  path_mappings['*'].append(os.path.join(
++      './', args.root_src_dir, 'tools/typescript/unresolved_module_stub.d.ts'))
++
+   tsconfig['compilerOptions']['paths'] = path_mappings
+ 
+   tsconfig_file = f'tsconfig_{args.output_suffix}.json'
+diff --git a/tools/typescript/unresolved_module_stub.d.ts b/tools/typescript/unresolved_module_stub.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..ee5fda39c676eec29c321e53ee6bf1e2d23960d1
+--- /dev/null
++++ b/tools/typescript/unresolved_module_stub.d.ts
+@@ -0,0 +1,2 @@
++declare const _stub: any;
++export = _stub;
+diff --git a/tools/typescript/validate_tsconfig.py b/tools/typescript/validate_tsconfig.py
+index 501baebdd4037d9b20141c581dd61a03758daa71..059a660fbfbcad672ca1d4ab0ac39cd9ba29b99c 100644
+--- a/tools/typescript/validate_tsconfig.py
++++ b/tools/typescript/validate_tsconfig.py
+@@ -275,6 +275,7 @@ def validateDefinitionDeps(definitions_files, target_path, gen_dir,
+       'third_party/node/node_modules/',
+       'third_party/polymer/v3_0/',
+       'tools/typescript/tests/',
++      'tools/typescript/unresolved_module_stub.d.ts',
+   ]
+   exceptions = [getPathFromCwd(e) for e in exceptions_list]
+   definitions_normalized = [d.replace('\\', '/') for d in definitions]

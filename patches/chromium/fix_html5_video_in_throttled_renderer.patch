@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Wed, 22 Jul 2026 13:48:30 -0700
+Subject: fix: html5 video in throttled renderer
+
+
+diff --git a/third_party/blink/renderer/core/exported/web_view_impl.cc b/third_party/blink/renderer/core/exported/web_view_impl.cc
+index ea23d47128d4e974353ea5a976a72d4fa0600e2b..35ba37fef855c4dc383085a279643b6617eff05f 100644
+--- a/third_party/blink/renderer/core/exported/web_view_impl.cc
++++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
+@@ -4187,10 +4187,9 @@ void WebViewImpl::SetVisibilityState(
+     bool is_initial_state) {
+   DCHECK(GetPage());
+ 
++  // If backgroundThrottling is disabled, the page is always visible.
+   if (!scheduler_throttling_allowed_) {
+-    GetPage()->SetVisibilityState(mojom::blink::PageVisibilityState::kVisible, is_initial_state);
+-    GetPage()->GetPageScheduler()->SetPageVisible(true);
+-    return;
++    visibility_state = mojom::blink::PageVisibilityState::kVisible;
+   }
+ 
+   GetPage()->SetVisibilityState(visibility_state, is_initial_state);

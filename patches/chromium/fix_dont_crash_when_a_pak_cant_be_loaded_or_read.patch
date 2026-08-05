@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: dennis <dennischengo@gmail.com>
+Date: Wed, 5 Aug 2026 01:04:43 +0000
+Subject: fix: don't crash when a .pak can't be loaded or read
+
+A .pak that is missing, locked or corrupt terminates the process in several
+places. For the locale pak this happens before the JS environment starts, so
+the app can neither update nor repair itself and every relaunch fails
+identically.
+
+Make those paths non-fatal without losing their crash reports. The locale
+load keeps its existing crash keys and captures them with
+DumpWithoutCrashing() before returning an empty string, which callers already
+handle; the resource lookups downgrade to DUMP_WILL_BE_*.
+
+diff --git a/ui/base/resource/resource_bundle.cc b/ui/base/resource/resource_bundle.cc
+index 383cc1e628603f8de2bbaf2f19659560123dc9d8..5bd30c5c42cb56428bc182c241a4f8a01ad2e029 100644
+--- a/ui/base/resource/resource_bundle.cc
++++ b/ui/base/resource/resource_bundle.cc
+@@ -19,6 +19,7 @@
+ #include "base/compiler_specific.h"
+ #include "base/containers/span.h"
+ #include "base/debug/crash_logging.h"
++#include "base/debug/dump_without_crashing.h"
+ #include "base/files/file.h"
+ #include "base/files/file_util.h"
+ #include "base/logging.h"
+@@ -529,11 +530,16 @@ std::string ResourceBundle::LoadLocaleResources(const std::string& pref_locale,
+ 
+   auto data_pack = std::make_unique<DataPack>(k100Percent);
+   if (auto result = data_pack->LoadFromPathWithError(locale_file_path);
+-      !result.has_value() && crash_on_failure) {
++      !result.has_value()) {
+     DataPack::ErrorState& error = result.error();
+     // https://crbug.com/40688225 and https://crbug.com/394631579: Chrome can't
+-    // start when the locale file cannot be loaded. Crash early and gather some
+-    // data.
++    // start when the locale file cannot be loaded, and crashes here to gather
++    // data. It can afford that because its installer guarantees these files.
++    // An embedder whose recovery lives in JS cannot: this runs before the JS
++    // environment exists, so terminating leaves the app unable to update or
++    // repair itself and every later launch fails identically. Capture the same
++    // data without crashing, and return empty as the no-candidate-path branch
++    // above already does.
+ 
+     // The local contained in prefs; provided by the caller.
+     SCOPED_CRASH_KEY_STRING32("LoadLocaleResources", "pref_locale",
+@@ -557,7 +563,14 @@ std::string ResourceBundle::LoadLocaleResources(const std::string& pref_locale,
+     SCOPED_CRASH_KEY_NUMBER("LoadLocaleResources", "file_error",
+                             error.file_error);
+ 
+-    NOTREACHED();
++    LOG(ERROR) << "failed to load locale resources from "
++               << locale_file_path.value() << "; reason "
++               << static_cast<int>(error.reason);
++    // Captured synchronously, so the scoped keys above are attached to the
++    // report. Throttled per call site, which matters here because subprocesses
++    // that need the resource bundle reach this code too.
++    base::debug::DumpWithoutCrashing();
++    return std::string();
+   }
+ 
+   locale_resources_data_.push_back(std::move(data_pack));
+@@ -674,10 +687,13 @@ gfx::Image& ResourceBundle::GetImageNamed(int resource_id) {
+ 
+   if (image.IsEmpty()) {
+     gfx::ImageSkia image_skia = CreateImageSkia(resource_id);
+-    CHECK(!image_skia.isNull())
+-        << "Unable to load image with id " << resource_id;
+-    image_skia.SetReadOnly();
+-    image = gfx::Image(image_skia);
++    if (image_skia.isNull()) {
++      DUMP_WILL_BE_NOTREACHED()
++          << "Unable to load image with id " << resource_id;
++    } else {
++      image_skia.SetReadOnly();
++      image = gfx::Image(image_skia);
++    }
+   }
+ 
+   // The load was successful, so cache the image.
+@@ -713,7 +729,11 @@ const ui::ImageModel& ResourceBundle::GetThemedLottieImageNamed(
+     return found->second;
+ 
+   std::optional<LottieData> data = GetLottieData(resource_id);
+-  CHECK(data) << "Unable to load themed Lottie image with id " << resource_id;
++  if (!data) {
++    DUMP_WILL_BE_NOTREACHED()
++        << "Unable to load themed Lottie image with id " << resource_id;
++    return image_models_.emplace(resource_id, ui::ImageModel()).first->second;
++  }
+ 
+   // The bytes string was successfully loaded, so parse it and cache the
+   // resulting image.
+@@ -1188,7 +1208,9 @@ bool ResourceBundle::LoadBitmap(const ResourceHandle& data_handle,
+   }
+ #endif
+ 
+-  NOTREACHED() << "Unable to decode theme image resource " << resource_id;
++  DUMP_WILL_BE_NOTREACHED()
++      << "Unable to decode theme image resource " << resource_id;
++  return false;
+ }
+ 
+ bool ResourceBundle::LoadBitmap(int resource_id,
+@@ -1281,13 +1303,15 @@ std::u16string ResourceBundle::GetLocalizedStringImpl(int resource_id) const {
+     // Fall back on the main data pack (shouldn't be any strings here except
+     // in unittests).
+     data = GetRawDataResource(resource_id);
+-    CHECK(!data->empty())
+-        << "Unable to find resource: " << resource_id
+-        << ". If this happens in a browser test running on Windows, it may "
+-           "be that dead-code elimination stripped out the code that uses the"
+-           " resource, causing the resource to be stripped out because the "
+-           "resource is not used by chrome.dll. See "
+-           "https://crbug.com/1181150.";
++    if (data->empty()) {
++      // If this happens in a browser test running on Windows, it may be that
++      // dead-code elimination stripped out the code that uses the resource,
++      // causing the resource to be stripped out because the resource is not
++      // used by chrome.dll. See https://crbug.com/1181150.
++      LOG(WARNING) << "Unable to find localized resource: " << resource_id;
++      base::debug::DumpWithoutCrashing();
++      return std::u16string();
++    }
+   }
+ 
+   // Strings should not be loaded from a data pack that contains binary data.
+diff --git a/ui/base/resource/resource_bundle.h b/ui/base/resource/resource_bundle.h
+index cb3cb9ae8c0c01d59ac4035e5a9603eab65c1ed1..9ee747971efd512454a6aa81ce5c4108cadcaa94 100644
+--- a/ui/base/resource/resource_bundle.h
++++ b/ui/base/resource/resource_bundle.h
+@@ -199,8 +199,8 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
+ 
+   // Initialize the ResourceBundle for this process. Does not take ownership of
+   // the |delegate| value. Returns the language selected or an empty string if
+-  // no candidate bundle file could be determined, or crashes the process if a
+-  // candidate could not be loaded (e.g., file not found or corrupted).  NOTE:
++  // no candidate bundle file could be determined or could not be loaded (e.g.,
++  // file not found or corrupted).  NOTE:
+   // Mac ignores this and always loads up resources for the language defined by
+   // the Cocoa UI (i.e., NSBundle does the language work).
+   //
+@@ -494,8 +494,9 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
+ 
+   // Try to load the locale specific strings from an external data module.
+   // Returns the locale that is loaded or an empty string if no resources were
+-  // loaded. If |crash_on_failure| is true on non-Android platforms, the process
+-  // is terminated if a candidate locale file could not be loaded.
++  // loaded. Failure is never fatal; |crash_on_failure| only controls whether
++  // crash keys are recorded when no candidate locale file can be found, for the
++  // benefit of a subsequent unrelated crash report.
+   std::string LoadLocaleResources(const std::string& pref_locale,
+                                   bool crash_on_failure);
+ 
+diff --git a/ui/base/resource/resource_bundle_mac.mm b/ui/base/resource/resource_bundle_mac.mm
+index ba901991c9ae0ec7167f4a0a07b187f00100cf45..ff191d9d3620ae869e8638e33618dbf6cc0ac895 100644
+--- a/ui/base/resource/resource_bundle_mac.mm
++++ b/ui/base/resource/resource_bundle_mac.mm
+@@ -114,9 +114,12 @@
+       }
+     }
+ 
+-    CHECK(ns_image) << "Unable to load image with id " << resource_id;
+-
+-    image = gfx::Image(ns_image);
++    if (ns_image) {
++      image = gfx::Image(ns_image);
++    } else {
++      DUMP_WILL_BE_NOTREACHED()
++          << "Unable to load image with id " << resource_id;
++    }
+   }
+ 
+   auto inserted = images_.emplace(resource_id, image);

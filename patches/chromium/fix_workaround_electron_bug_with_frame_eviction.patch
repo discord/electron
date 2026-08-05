@@ -6,7 +6,7 @@ Subject: fix: workaround Electron bug with frame eviction
 https://github.com/electron/electron/issues/42378
 
 diff --git a/content/browser/renderer_host/render_widget_host_view_aura.cc b/content/browser/renderer_host/render_widget_host_view_aura.cc
-index de67e89b4f7c9cf2caee3a52a0c354b4636a0570..902580a3b8db3acd2911dd5dab66707434924431 100644
+index 59d70baff573aca770bcd2f8a39542bd57c68e24..eaa69617771bfd2c1a5eb44cb945b744ce9244a4 100644
 --- a/content/browser/renderer_host/render_widget_host_view_aura.cc
 +++ b/content/browser/renderer_host/render_widget_host_view_aura.cc
 @@ -663,8 +663,10 @@ void RenderWidgetHostViewAura::ShowImpl(PageVisibilityState page_visibility) {

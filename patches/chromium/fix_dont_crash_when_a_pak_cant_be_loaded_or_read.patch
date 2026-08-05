@@ -14,7 +14,7 @@ DumpWithoutCrashing() before returning an empty string, which callers already
 handle; the resource lookups downgrade to DUMP_WILL_BE_*.
 
 diff --git a/ui/base/resource/resource_bundle.cc b/ui/base/resource/resource_bundle.cc
-index 383cc1e628603f8de2bbaf2f19659560123dc9d8..5bd30c5c42cb56428bc182c241a4f8a01ad2e029 100644
+index 432a14f39c27a17b6e82e1c77b863c85642f0e5e..ed53b31c1002014a8ece29a404e11b7eabe38e34 100644
 --- a/ui/base/resource/resource_bundle.cc
 +++ b/ui/base/resource/resource_bundle.cc
 @@ -19,6 +19,7 @@
@@ -92,7 +92,7 @@ index 383cc1e628603f8de2bbaf2f19659560123dc9d8..5bd30c5c42cb56428bc182c241a4f8a0
  
    // The bytes string was successfully loaded, so parse it and cache the
    // resulting image.
-@@ -1188,7 +1208,9 @@ bool ResourceBundle::LoadBitmap(const ResourceHandle& data_handle,
+@@ -1199,7 +1219,9 @@ bool ResourceBundle::LoadBitmap(const ResourceHandle& data_handle,
    }
  #endif
  
@@ -103,7 +103,7 @@ index 383cc1e628603f8de2bbaf2f19659560123dc9d8..5bd30c5c42cb56428bc182c241a4f8a0
  }
  
  bool ResourceBundle::LoadBitmap(int resource_id,
-@@ -1281,13 +1303,15 @@ std::u16string ResourceBundle::GetLocalizedStringImpl(int resource_id) const {
+@@ -1293,13 +1315,15 @@ std::u16string ResourceBundle::GetLocalizedStringImpl(int resource_id) const {
      // Fall back on the main data pack (shouldn't be any strings here except
      // in unittests).
      data = GetRawDataResource(resource_id);
@@ -127,7 +127,7 @@ index 383cc1e628603f8de2bbaf2f19659560123dc9d8..5bd30c5c42cb56428bc182c241a4f8a0
  
    // Strings should not be loaded from a data pack that contains binary data.
 diff --git a/ui/base/resource/resource_bundle.h b/ui/base/resource/resource_bundle.h
-index cb3cb9ae8c0c01d59ac4035e5a9603eab65c1ed1..9ee747971efd512454a6aa81ce5c4108cadcaa94 100644
+index c742164e29ab9898a73c3070bf83fe474ca3ba5f..0324e431b6f88e43872ab4118d0d4b07b88d6e1e 100644
 --- a/ui/base/resource/resource_bundle.h
 +++ b/ui/base/resource/resource_bundle.h
 @@ -199,8 +199,8 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {

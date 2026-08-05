@@ -52,6 +52,7 @@
 #include "sandbox/policy/switches.h"
 #include "services/network/network_service.h"
 #include "shell/app/command_line_args.h"
+#include "shell/app/electron_main_delegate.h"
 #include "shell/browser/api/electron_api_menu.h"
 #include "shell/browser/api/electron_api_utility_process.h"
 #include "shell/browser/api/electron_api_web_contents.h"
@@ -992,6 +993,27 @@ std::string App::GetSystemLocale(gin_helper::ErrorThrower thrower) const {
     return {};
   }
   return static_cast<BrowserProcessImpl*>(g_browser_process)->GetSystemLocale();
+}
+
+v8::Local<v8::Value> App::GetLocaleResourceStatus(v8::Isolate* isolate) {
+  const LocaleResourceState& state = GetLocaleResourceState();
+  auto dict = gin_helper::Dictionary::CreateEmpty(isolate);
+  switch (state.status) {
+    case LocaleResourceStatus::kUnknown:
+      dict.Set("status", "unknown");
+      break;
+    case LocaleResourceStatus::kLoaded:
+      dict.Set("status", "loaded");
+      break;
+    case LocaleResourceStatus::kFallback:
+      dict.Set("status", "fallback");
+      break;
+    case LocaleResourceStatus::kUnavailable:
+      dict.Set("status", "unavailable");
+      break;
+  }
+  dict.Set("failedLocale", state.failed_locale);
+  return dict.GetHandle();
 }
 
 std::string App::GetLocaleCountryCode() {
@@ -1997,6 +2019,7 @@ gin::ObjectTemplateBuilder App::GetObjectTemplateBuilder(v8::Isolate* isolate) {
       .SetMethod("getPreferredSystemLanguages", &GetPreferredLanguages)
       .SetMethod("getSystemLocale", &App::GetSystemLocale)
       .SetMethod("getLocaleCountryCode", &App::GetLocaleCountryCode)
+      .SetMethod("getLocaleResourceStatus", &App::GetLocaleResourceStatus)
 #if BUILDFLAG(USE_NSS_CERTS)
       .SetMethod("importCertificate", &App::ImportCertificate)
 #endif

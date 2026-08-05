@@ -206,6 +206,7 @@ class App final : public gin::Wrappable<App>,
   std::string GetLocale();
   std::string GetLocaleCountryCode();
   std::string GetSystemLocale(gin_helper::ErrorThrower thrower) const;
+  v8::Local<v8::Value> GetLocaleResourceStatus(v8::Isolate* isolate);
   void OnSecondInstance(base::CommandLine cmd,
                         const base::FilePath& cwd,
                         const std::vector<uint8_t> additional_data);

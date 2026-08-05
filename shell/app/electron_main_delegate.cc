@@ -19,6 +19,7 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/strings/cstring_view.h"
 #include "base/strings/string_number_conversions.cc"
@@ -54,6 +55,7 @@
 #include "shell/renderer/electron_sandboxed_renderer_client.h"
 #include "shell/utility/electron_content_utility_client.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_switches.h"
 #include "v8/include/v8-snapshot.h"
@@ -140,7 +142,16 @@ void ValidateV8Snapshot(v8::StartupData* data) {
   }
 }
 
+LocaleResourceState& GetMutableLocaleResourceState() {
+  static base::NoDestructor<LocaleResourceState> state;
+  return *state;
+}
+
 }  // namespace
+
+const LocaleResourceState& GetLocaleResourceState() {
+  return GetMutableLocaleResourceState();
+}
 
 std::string LoadResourceBundle(const std::string& locale) {
   const bool initialized = ui::ResourceBundle::HasSharedInstance();
@@ -155,9 +166,71 @@ std::string LoadResourceBundle(const std::string& locale) {
   base::PathService::Get(base::DIR_ASSETS, &pak_dir);
 #endif
 
+  // A damaged installation can leave a locale pak missing or truncated on
+  // disk. LoadLocaleResources() is patched to report that rather than
+  // terminate, because this runs before the JS environment exists and a dead
+  // process can neither update nor repair itself. An empty return means no
+  // locale data was loaded.
+  static constexpr char kFallbackLocale[] = "en-US";
   std::string loaded_locale = ui::ResourceBundle::InitSharedInstanceWithLocale(
       locale, nullptr, ui::ResourceBundle::LOAD_COMMON_RESOURCES);
+
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
+
+  // Tracked explicitly rather than inferred by comparing locales: the loaded
+  // locale is the *resolved* one, so it differs from the request routinely
+  // without anything having failed.
+  bool used_fallback = false;
+  std::string failed_locale;
+
+  if (loaded_locale.empty()) {
+    // Resolution is deterministic given the same input and on-disk state, so
+    // this matches the app locale LoadLocaleResources() just tried.
+    failed_locale =
+        l10n_util::GetApplicationLocale(locale, /*set_icu_locale=*/false);
+
+    if (failed_locale != kFallbackLocale) {
+      // Retrying brings the app up fully functional, just in English.
+      LOG(ERROR) << "failed to load locale resources for \"" << failed_locale
+                 << "\"; retrying with \"" << kFallbackLocale << "\"";
+      loaded_locale = bundle.ReloadLocaleResources(kFallbackLocale);
+      used_fallback = !loaded_locale.empty();
+    }
+  }
+
+  if (loaded_locale.empty()) {
+    // Chromium tolerates this state: localized string lookups return empty
+    // rather than crashing. Native strings and accessibility labels will be
+    // blank, so this is a degraded mode the app is expected to repair, not a
+    // steady state.
+    LOG(ERROR) << "no locale resources could be loaded; the installation is "
+                  "damaged and requires repair";
+  }
+
+  LocaleResourceState& state = GetMutableLocaleResourceState();
+  state.failed_locale = failed_locale;
+  if (loaded_locale.empty()) {
+    state.status = LocaleResourceStatus::kUnavailable;
+  } else if (used_fallback) {
+    state.status = LocaleResourceStatus::kFallback;
+  } else {
+    state.status = LocaleResourceStatus::kLoaded;
+  }
+
+  // Record the outcome as a crash key. Without this, no longer crashing on a
+  // damaged pak would also mean losing the diagnostics that a crash used to
+  // carry, and a process that dies later for an unrelated reason would give no
+  // hint that it had been running degraded.
+  if (state.status != LocaleResourceStatus::kLoaded) {
+    static crash_reporter::CrashKeyString<16> status_key("locale_resources");
+    static crash_reporter::CrashKeyString<32> failed_key(
+        "locale_resources-failed");
+    status_key.Set(state.status == LocaleResourceStatus::kUnavailable
+                       ? "unavailable"
+                       : "fallback");
+    failed_key.Set(state.failed_locale);
+  }
+
   bundle.AddDataPackFromPath(pak_dir.Append(FILE_PATH_LITERAL("resources.pak")),
                              ui::kScaleFactorNone);
   return loaded_locale;

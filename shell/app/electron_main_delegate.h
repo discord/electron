@@ -19,6 +19,34 @@ class TracingSamplerProfiler;
 
 namespace electron {
 
+// Whether locale resources loaded normally, fell back to the default locale, or
+// could not be loaded at all. A damaged installation can leave a locale pak
+// missing or truncated on disk. Rather than terminating the process before the
+// JS environment exists — which would leave the app unable to update or repair
+// itself — LoadResourceBundle() degrades and records the outcome here.
+enum class LocaleResourceStatus {
+  // LoadResourceBundle() has not run yet in this process. Electron loads and
+  // joins the app's JS in PostEarlyInitialization(), which precedes the
+  // PreCreateThreads() call that reads the locale pak — so a caller at module
+  // scope sees this rather than a falsely healthy kLoaded. Treat it as "asked
+  // too early", not as a diagnosis.
+  kUnknown,
+  kLoaded,
+  kFallback,
+  kUnavailable,
+};
+
+struct LocaleResourceState {
+  LocaleResourceStatus status = LocaleResourceStatus::kUnknown;
+  // The locale whose pak could not be loaded, identifying the damaged file.
+  // This is the *resolved* locale. Empty unless `status` is kFallback or
+  // kUnavailable.
+  std::string failed_locale;
+};
+
+// Reports kUnknown until LoadResourceBundle() has run in this process.
+const LocaleResourceState& GetLocaleResourceState();
+
 std::string LoadResourceBundle(const std::string& locale);
 
 class ElectronMainDelegate : public content::ContentMainDelegate {

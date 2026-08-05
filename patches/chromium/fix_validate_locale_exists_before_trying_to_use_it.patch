@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: dennis <dennischengo@gmail.com>
+Date: Wed, 5 Aug 2026 00:49:54 +0000
+Subject: fix: validate locale exists before trying to use it
+
+
+diff --git a/ui/base/l10n/l10n_util_mac.mm b/ui/base/l10n/l10n_util_mac.mm
+index cad5022d82a9b4987dd07ecc38c4eddddfa07512..c23a6560dec59c92afa27251f251415798684f7d 100644
+--- a/ui/base/l10n/l10n_util_mac.mm
++++ b/ui/base/l10n/l10n_util_mac.mm
+@@ -8,9 +8,13 @@
+ 
+ #import "base/apple/bundle_locations.h"
+ #import "base/check.h"
++#import "base/i18n/language_tag.h"
++#import "base/i18n/tag_converters.h"
+ #import "base/lazy_instance.h"
++#import "base/logging.h"
+ #import "base/strings/sys_string_conversions.h"
+ #import "ui/base/l10n/l10n_util.h"
++#import "ui/base/resource/resource_bundle.h"
+ 
+ namespace {
+ 
+@@ -49,18 +53,44 @@ void OverrideLocaleWithCocoaLocale() {
+   // "Today" are in the same language as raw dates like "March 20, 1999" (Chrome
+   // strings resources vs ICU generated strings).  This also makes the Mac act
+   // like other Chrome platforms.
+-  NSArray* language_list = base::apple::OuterBundle().preferredLocalizations;
+-  NSString* first_locale = language_list[0];
+-  // macOS uses "_" instead of "-", so swap to get a real locale value.
+-  std::string locale_value = base::SysNSStringToUTF8(
+-      [first_locale stringByReplacingOccurrencesOfString:@"_" withString:@"-"]);
+-
+-  // On disk the "en-US" resources are just "en" (http://crbug.com/25578), so
+-  // the reverse mapping is done here to continue to feed Chrome the same values
+-  // in all cases on all platforms.  (l10n_util maps en to en-US if it gets
+-  // passed this on the command line)
+-  if (locale_value == "en")
++  NSArray<NSString*>* language_list =
++      base::apple::OuterBundle().preferredLocalizations;
++  if (language_list.count == 0) {
++    LOG(WARNING) << "preferredLocalizations is empty; not overriding locale";
++    return;
++  }
++
++  std::string locale_value;
++  for (NSString* localization in language_list) {
++    // macOS uses "_" instead of "-", so swap to get a real locale value.
++    std::string candidate = base::SysNSStringToUTF8([localization
++        stringByReplacingOccurrencesOfString:@"_"
++                                  withString:@"-"]);
++
++    // On disk the "en-US" resources are just "en" (http://crbug.com/25578), so
++    // the reverse mapping is done here to continue to feed Chrome the same
++    // values in all cases on all platforms.  (l10n_util maps en to en-US if it
++    // gets passed this on the command line)
++    if (candidate == "en") {
++      candidate = "en-US";
++    }
++
++    std::optional<base::i18n::LanguageTag> candidate_tag =
++        base::i18n::LanguageTagConverter::GetInstance().FromString(candidate);
++    if (candidate_tag &&
++        ui::ResourceBundle::LocaleDataPakExists(
++            *candidate_tag, ui::ResourceBundle::Gender::kDefault)) {
++      locale_value = candidate;
++      break;
++    }
++    LOG(WARNING) << "No locale data for \"" << candidate << "\"";
++  }
++
++  if (locale_value.empty()) {
++    LOG(WARNING) << "No preferred localization has locale data; falling back "
++                    "to en-US";
+     locale_value = "en-US";
++  }
+ 
+   g_overridden_locale.Get() = locale_value;
+ }

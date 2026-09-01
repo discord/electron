@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Darius Mercadier <dmercadier@chromium.org>
+Date: Thu, 7 May 2026 14:25:35 +0200
+Subject: [turboshaft] Fix store-store-elimination backedge revisit
+
+Change-Id: I2e82b3a758ddb64e26c3f5bbd06572c0b26408ab
+Reviewed-on: https://chromium-review.googlesource.com/c/v8/v8/+/7827860
+Auto-Submit: Darius Mercadier <dmercadier@chromium.org>
+Reviewed-by: Nico Hartmann <nicohartmann@chromium.org>
+Commit-Queue: Darius Mercadier <dmercadier@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#107180}
+
+diff --git a/src/compiler/turboshaft/store-store-elimination-reducer-inl.h b/src/compiler/turboshaft/store-store-elimination-reducer-inl.h
+index 27991ea55290489512b62b19182adcf29cad703a..026d8c74fceb8b90765f4454b57a7aee9c6a4908 100644
+--- a/src/compiler/turboshaft/store-store-elimination-reducer-inl.h
++++ b/src/compiler/turboshaft/store-store-elimination-reducer-inl.h
+@@ -303,7 +303,12 @@ class RedundantStoreAnalysis {
+         if (needs_revisit) {
+           Block* back_edge = block.LastPredecessor();
+           DCHECK_GE(back_edge->index(), block_index);
+-          processed = back_edge->index().id() + 1;
++          // We need a +2 to process the backedge at the next iteration:
++          //   - the `--processed` at the end of the loop will undo a +1.
++          //   - `block_index` is computed with `processed - 1`, which will undo
++          //     another +1.
++          static constexpr int kBackedgeAdjust = 2;
++          processed = back_edge->index().id() + kBackedgeAdjust;
+         }
+       }
+     }

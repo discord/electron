@@ -29,3 +29,4 @@ cherry-pick-24134ecc1d1a.patch
 cherry-pick-8120dd10e82d.patch
 cherry-pick-303a64b51072.patch
 fix_argument_adaptation_for_wasmresume_builtin.patch
+fix_store_store_elimination_backedge_revisit.patch

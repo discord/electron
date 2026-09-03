@@ -16,6 +16,7 @@ import("//tools/grit/grit_rule.gni")
 import("//tools/grit/repack.gni")
 import("//tools/resources/generate_resource_allowlist.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
+import("//ui/gl/features.gni")
 import("//v8/gni/snapshot_toolchain.gni")
 import("//v8/gni/v8.gni")
 import("build/asar.gni")
@@ -1242,6 +1243,20 @@ if (is_mac) {
     }
   }
 
+  # Add the ANGLE .dylibs in the Libraries directory of the Framework.
+  bundle_data("electron_angle_binaries") {
+    sources = [
+      "$root_out_dir/egl_intermediates/libEGL.dylib",
+      "$root_out_dir/egl_intermediates/libGLESv2.dylib",
+    ]
+    outputs = [ "{{bundle_contents_dir}}/Libraries/{{source_file_part}}" ]
+    public_deps = [ "//ui/gl:angle_library_copy" ]
+  }
+
+  group("electron_angle_library") {
+    deps = [ ":electron_angle_binaries" ]
+  }
+
   # Add the SwiftShader .dylibs in the Libraries directory of the Framework.
   bundle_data("electron_swiftshader_binaries") {
     sources = [
@@ -1324,6 +1339,7 @@ if (is_mac) {
       ":electron_lib",
     ]
     deps = [
+      ":electron_angle_library",
       ":electron_framework_libraries",
       ":electron_framework_resources",
       ":electron_swiftshader_library",
@@ -1884,6 +1900,16 @@ dist_zip("electron_dist_zip") {
     }
 
     data_deps += [ "//sandbox/linux:chrome_sandbox" ]
+  }
+  if (is_win && !use_static_angle) {
+    # Chromium's own Windows packaging (chrome/tools/build/win/FILES.cfg) lists
+    # libEGL.dll/libGLESv2.dll explicitly outside of GN; electron_dist_zip has
+    # no equivalent manifest, so pull them in as data_deps directly, matching
+    # `electron_angle_binaries` on mac (see below).
+    data_deps += [
+      "//third_party/angle:libEGL",
+      "//third_party/angle:libGLESv2",
+    ]
   }
   deps = data_deps
   if (electron_use_resource_allowlist) {

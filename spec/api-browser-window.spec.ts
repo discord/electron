@@ -3484,6 +3484,22 @@ describe('BrowserWindow module', () => {
         expect(w.getWindowButtonPosition()).toEqual(newPos);
       });
     });
+
+    describe('BrowserWindow.setWindowButtonAppearance(appearance)', () => {
+      it('accepts supported appearances', () => {
+        const w = new BrowserWindow({ show: false });
+        expect(() => w.setWindowButtonAppearance('auto')).not.to.throw();
+        expect(() => w.setWindowButtonAppearance('light')).not.to.throw();
+        expect(() => w.setWindowButtonAppearance('dark')).not.to.throw();
+      });
+
+      it('rejects unsupported appearances', () => {
+        const w = new BrowserWindow({ show: false });
+        expect(() => w.setWindowButtonAppearance('unsupported' as 'auto')).to.throw(
+          "appearance must be 'auto', 'light', or 'dark'"
+        );
+      });
+    });
   });
 
   ifdescribe(process.platform === 'win32')('BrowserWindow.setAppDetails(options)', () => {

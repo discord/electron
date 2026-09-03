@@ -44,6 +44,7 @@
 #include "third_party/webrtc/modules/desktop_capture/mac/window_list_utils.h"
 #include "ui/base/hit_test.h"
 #include "ui/display/screen.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gl/gpu_switching_manager.h"
 #include "ui/views/background.h"
@@ -1123,6 +1124,10 @@ void NativeWindowMac::SetBackgroundColor(SkColor color) {
   base::apple::ScopedCFTypeRef<CGColorRef> cgcolor(
       skia::CGColorCreateFromSkColor(color));
   [[[window_ contentView] layer] setBackgroundColor:cgcolor.get()];
+
+  // macOS 26 derives inactive traffic light contrast from window appearance.
+  // Widget overrides survive theme changes that reset NSWindow appearance.
+  UpdateWindowButtonAppearance();
 }
 
 SkColor NativeWindowMac::GetBackgroundColor() const {
@@ -1130,6 +1135,30 @@ SkColor NativeWindowMac::GetBackgroundColor() const {
   if (!color)
     return SK_ColorTRANSPARENT;
   return skia::CGColorRefToSkColor(color);
+}
+
+void NativeWindowMac::UpdateWindowButtonAppearance() {
+  if (@available(macOS 26.0, *)) {
+    std::optional<ui::ColorProviderKey::ColorMode> color_mode;
+    switch (window_button_appearance_) {
+      case WindowButtonAppearance::kAuto: {
+        const SkColor color = GetBackgroundColor();
+        if (SkColorGetA(color) == SK_AlphaOPAQUE) {
+          color_mode = color_utils::IsDark(color)
+                           ? ui::ColorProviderKey::ColorMode::kDark
+                           : ui::ColorProviderKey::ColorMode::kLight;
+        }
+        break;
+      }
+      case WindowButtonAppearance::kLight:
+        color_mode = ui::ColorProviderKey::ColorMode::kLight;
+        break;
+      case WindowButtonAppearance::kDark:
+        color_mode = ui::ColorProviderKey::ColorMode::kDark;
+        break;
+    }
+    widget()->SetColorModeOverride(color_mode);
+  }
 }
 
 void NativeWindowMac::SetHasShadow(bool has_shadow) {
@@ -1511,6 +1540,12 @@ void NativeWindowMac::SetWindowButtonPosition(
 
 std::optional<gfx::Point> NativeWindowMac::GetWindowButtonPosition() const {
   return traffic_light_position_;
+}
+
+void NativeWindowMac::SetWindowButtonAppearance(
+    WindowButtonAppearance appearance) {
+  window_button_appearance_ = appearance;
+  UpdateWindowButtonAppearance();
 }
 
 void NativeWindowMac::RedrawTrafficLights() {

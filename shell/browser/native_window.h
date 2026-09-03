@@ -246,10 +246,17 @@ class NativeWindow : public views::WidgetDelegate {
 
   // Traffic Light API
 #if BUILDFLAG(IS_MAC)
+  enum class WindowButtonAppearance {
+    kAuto,
+    kLight,
+    kDark,
+  };
+
   virtual void SetWindowButtonVisibility(bool visible) = 0;
   virtual bool GetWindowButtonVisibility() const = 0;
   virtual void SetWindowButtonPosition(std::optional<gfx::Point> position) = 0;
   virtual std::optional<gfx::Point> GetWindowButtonPosition() const = 0;
+  virtual void SetWindowButtonAppearance(WindowButtonAppearance appearance) = 0;
   virtual void RedrawTrafficLights() = 0;
   virtual void UpdateFrame() = 0;
 #endif

@@ -226,6 +226,8 @@ class BaseWindow : public gin_helper::TrackableObject<BaseWindow>,
   bool GetWindowButtonVisibility() const;
   void SetWindowButtonPosition(std::optional<gfx::Point> position);
   std::optional<gfx::Point> GetWindowButtonPosition() const;
+  void SetWindowButtonAppearance(const std::string& appearance,
+                                 gin::Arguments* args);
 
   bool IsHiddenInMissionControl();
   void SetHiddenInMissionControl(bool hidden);

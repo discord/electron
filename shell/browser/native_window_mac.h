@@ -133,6 +133,7 @@ class NativeWindowMac : public NativeWindow,
   bool GetWindowButtonVisibility() const override;
   void SetWindowButtonPosition(std::optional<gfx::Point> position) override;
   std::optional<gfx::Point> GetWindowButtonPosition() const override;
+  void SetWindowButtonAppearance(WindowButtonAppearance appearance) override;
   void RedrawTrafficLights() override;
   void UpdateFrame() override;
   void SetTouchBar(
@@ -250,6 +251,7 @@ class NativeWindowMac : public NativeWindow,
   void InternalSetWindowButtonVisibility(bool visible);
   void InternalSetParentWindow(NativeWindow* parent, bool attach);
   void SetForwardMouseMessages(bool forward);
+  void UpdateWindowButtonAppearance();
 
   void UpdateZoomButton();
 
@@ -290,6 +292,9 @@ class NativeWindowMac : public NativeWindow,
   // The visibility mode of window button controls when explicitly set through
   // setWindowButtonVisibility().
   std::optional<bool> window_button_visibility_;
+
+  WindowButtonAppearance window_button_appearance_ =
+      WindowButtonAppearance::kAuto;
 
   // Controls the position and visibility of window buttons.
   WindowButtonsProxy* __strong buttons_proxy_;

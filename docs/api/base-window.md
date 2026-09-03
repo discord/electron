@@ -1559,6 +1559,13 @@ Passing `null` will reset the position to default.
 Returns `Point | null` - The custom position for the traffic light buttons in
 frameless window, `null` will be returned when there is no custom position.
 
+#### `win.setWindowButtonAppearance(appearance)` _macOS_
+
+* `appearance` string - Can be `auto`, `light`, or `dark`.
+
+Sets the appearance used to draw the traffic light buttons. `auto` derives the
+appearance from the window background color.
+
 #### `win.setTouchBar(touchBar)` _macOS_
 
 * `touchBar` TouchBar | null

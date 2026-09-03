@@ -920,6 +920,22 @@ void BaseWindow::SetWindowButtonPosition(std::optional<gfx::Point> position) {
 std::optional<gfx::Point> BaseWindow::GetWindowButtonPosition() const {
   return window_->GetWindowButtonPosition();
 }
+
+void BaseWindow::SetWindowButtonAppearance(const std::string& appearance,
+                                           gin::Arguments* args) {
+  NativeWindow::WindowButtonAppearance native_appearance;
+  if (appearance == "auto") {
+    native_appearance = NativeWindow::WindowButtonAppearance::kAuto;
+  } else if (appearance == "light") {
+    native_appearance = NativeWindow::WindowButtonAppearance::kLight;
+  } else if (appearance == "dark") {
+    native_appearance = NativeWindow::WindowButtonAppearance::kDark;
+  } else {
+    args->ThrowTypeError("appearance must be 'auto', 'light', or 'dark'");
+    return;
+  }
+  window_->SetWindowButtonAppearance(native_appearance);
+}
 #endif
 
 #if BUILDFLAG(IS_MAC)
@@ -1438,6 +1454,8 @@ void BaseWindow::BuildPrototype(v8::Isolate* isolate,
                  &BaseWindow::SetWindowButtonPosition)
       .SetMethod("getWindowButtonPosition",
                  &BaseWindow::GetWindowButtonPosition)
+      .SetMethod("setWindowButtonAppearance",
+                 &BaseWindow::SetWindowButtonAppearance)
       .SetProperty("excludedFromShownWindowsMenu",
                    &BaseWindow::IsExcludedFromShownWindowsMenu,
                    &BaseWindow::SetExcludedFromShownWindowsMenu)

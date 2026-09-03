@@ -3,3 +3,4 @@ add_discord_ffmpeg_config_options.patch
 add_media_foundation_h264_decode.patch
 add_dynamic_loading_for_openh264_on_linux.patch
 fix_openh264_opaque_for_bframes.patch
+roll_ffmpeg.patch

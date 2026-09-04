@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mark Harmer <mark.harmer@discordapp.com>
+Date: Fri, 4 Sep 2026 11:12:33 -0700
+Subject: fix: correct dependencies when webnn tflite and litert are disabled
+
+
+diff --git a/services/webnn/BUILD.gn b/services/webnn/BUILD.gn
+index 112b309444fd2c667b54103628bc5446ef3f04e0..22b08e4f1e6c438472a9ad32420c4e45291d7f1f 100644
+--- a/services/webnn/BUILD.gn
++++ b/services/webnn/BUILD.gn
+@@ -245,6 +245,7 @@ component("webnn_service") {
+     ]
+     deps += [
+       "//services/webnn/public/cpp:win",
++      "//third_party/fp16",
+       "//third_party/windows_app_sdk_headers",
+     ]
+ 

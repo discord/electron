@@ -1380,6 +1380,28 @@ void WebContents::AdoptChildWebContents(
   // preferences will be picked up by the RenderWidgetHost via its call to the
   // delegate's OverrideWebkitPrefs.
   WebContentsPreferences::CreateForWebContents(new_contents, dict);
+  auto* preferences = WebContentsPreferences::FromWebContents(new_contents);
+
+  // If MaybeOverrideCreateParamsForNewWindow() installed an
+  // OffScreenWebContentsView for this popup, wire it up to the
+  // content::WebContents it belongs to right away. WebContentsImpl::
+  // CreateNewWindow() synchronously calls CreateViewForWidget() on this view
+  // further down the same call this delegate method runs from -- before any
+  // BrowserWindow ever attaches to this popup's WebContents -- so GetSize()
+  // sees no NativeWindow yet and the RenderWidgetHostView is created at
+  // (0, 0). Without web_contents_ set here, OffScreenWebContentsView::
+  // GetView() keeps returning null for the rest of this popup's life, so
+  // even the later SetNativeWindow()-triggered resize (once a BrowserWindow
+  // does attach) silently no-ops and the view is stuck at (0, 0) forever --
+  // no frame ever has anything to paint.
+  if (preferences->IsOffscreen()) {
+    auto* web_contents_impl =
+        static_cast<content::WebContentsImpl*>(new_contents);
+    if (auto* osr_view = static_cast<OffScreenWebContentsView*>(
+            web_contents_impl->GetView())) {
+      osr_view->SetWebContents(new_contents);
+    }
+  }
 }
 
 bool WebContents::IsWebContentsCreationOverridden(
@@ -1430,18 +1452,40 @@ void WebContents::MaybeOverrideCreateParamsForNewWindow(
 
   v8::Local<v8::Value> use_offscreen;
   if (dict.Get(options::kOffscreen, &use_offscreen)) {
-    bool is_offscreen =
-        use_offscreen->IsObject() ||
-        (use_offscreen->IsBoolean() &&
-         dict.Get(options::kOffscreen, &is_offscreen) && is_offscreen);
+    bool is_offscreen = use_offscreen->IsObject();
+
+    // Defaults must match the field initializers below, since a boolean
+    // `offscreen: true` (as opposed to an options object) carries none of
+    // these settings and the view should fall back to the same defaults
+    // a plain top-level offscreen WebContents would use.
+    bool use_shared_texture = false;
+    std::string shared_texture_pixel_format = "argb";
+    float device_scale_factor = 1.0f;
+
+    if (is_offscreen) {
+      // `dict` is the *popup's* pending web preferences (set via
+      // `_setNextChildWebPreferences`), so these must be read from it
+      // rather than from this WebContents' own offscreen_* members: `this`
+      // is the opener creating the new window, and its offscreen settings
+      // reflect the opener's own configuration, not the new popup's.
+      gin_helper::Dictionary use_offscreen_dict =
+          gin_helper::Dictionary::CreateEmpty(isolate);
+      dict.Get(options::kOffscreen, &use_offscreen_dict);
+      use_offscreen_dict.Get(options::kUseSharedTexture, &use_shared_texture);
+      use_offscreen_dict.Get(options::kSharedTexturePixelFormat,
+                             &shared_texture_pixel_format);
+      use_offscreen_dict.Get(options::kDeviceScaleFactor,
+                             &device_scale_factor);
+    } else if (use_offscreen->IsBoolean()) {
+      dict.Get(options::kOffscreen, &is_offscreen);
+    }
 
     if (is_offscreen) {
       // Use a no-op callback here. The real OnPaint callback will be bound
       // to the child WebContents in AddNewContents via SetCallback().
       auto* view = new OffScreenWebContentsView(
-          false, offscreen_use_shared_texture_,
-          offscreen_shared_texture_pixel_format_,
-          offscreen_device_scale_factor_, base::DoNothing());
+          false, use_shared_texture, shared_texture_pixel_format,
+          device_scale_factor, base::DoNothing());
       create_params->view = view;
       create_params->delegate_view = view;
     }
@@ -1474,6 +1518,22 @@ content::WebContents* WebContents::AddNewContents(
   // in MaybeOverrideCreateParamsForNewWindow, but the paint data
   // belongs to the child.
   if (auto* osr_view = api_web_contents->GetOffScreenWebContentsView()) {
+    // CreateAndTake() constructs api_web_contents via the "take ownership of
+    // an existing content::WebContents" constructor, which -- unlike the one
+    // used for a fresh top-level offscreen BrowserWindow -- never parses
+    // webPreferences.offscreen, so offscreen_use_shared_texture_ and
+    // offscreen_shared_texture_pixel_format_ are stuck at their defaults
+    // (false / "argb") here. WebContents::OnPaint() reads its own copies of
+    // these, not the view's, to decide whether the JS 'paint' event carries
+    // a `texture` at all -- so without this, shared-texture mode silently
+    // drops the texture from the event (and the JS side's texture.release()
+    // call on that missing texture becomes a no-op, permanently leaking the
+    // real GPU texture and stalling all painting after the first frame).
+    api_web_contents->offscreen_use_shared_texture_ =
+        osr_view->offscreen_use_shared_texture();
+    api_web_contents->offscreen_shared_texture_pixel_format_ =
+        osr_view->offscreen_shared_texture_pixel_format();
+
     osr_view->SetCallback(base::BindRepeating(&WebContents::OnPaint,
                                               api_web_contents->GetWeakPtr()));
   }

@@ -48,6 +48,13 @@ class OffScreenWebContentsView : public content::WebContentsView,
   void SetNativeWindow(NativeWindow* window);
   void SetCallback(const OnPaintCallback& callback);
 
+  bool offscreen_use_shared_texture() const {
+    return offscreen_use_shared_texture_;
+  }
+  const std::string& offscreen_shared_texture_pixel_format() const {
+    return offscreen_shared_texture_pixel_format_;
+  }
+
   // NativeWindowObserver:
   void OnWindowResize() override;
   void OnWindowClosed() override;

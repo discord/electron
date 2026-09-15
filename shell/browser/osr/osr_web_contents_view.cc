@@ -53,6 +53,16 @@ void OffScreenWebContentsView::SetWebContents(
 
 void OffScreenWebContentsView::SetCallback(const OnPaintCallback& callback) {
   callback_ = callback;
+
+  // If CreateViewForWidget() already ran (e.g. the window.open()-created
+  // popup case, where it runs synchronously during WebContentsImpl::
+  // CreateNewWindow(), before AddNewContents() ever calls this), the
+  // existing OffScreenRenderWidgetHostView already copied the old callback_
+  // (a no-op, in that case) into its own member at construction time.
+  // Updating callback_ here alone would never reach it, so it must be
+  // rebound directly too.
+  if (auto* view = GetView())
+    view->SetCallback(callback);
 }
 
 void OffScreenWebContentsView::SetNativeWindow(NativeWindow* window) {

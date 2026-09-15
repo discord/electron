@@ -251,6 +251,19 @@ class OffScreenRenderWidgetHostView
   void SetSizeAndDeviceScaleFactor(const gfx::Size& size,
                                    float device_scale_factor);
 
+  // Rebinds the callback frames are delivered to. Needed for the
+  // window.open()-created-popup case: MaybeOverrideCreateParamsForNewWindow()
+  // has no real WebContents::OnPaint to bind yet, so the OffScreenWebContents
+  // View it builds is constructed with a no-op callback; that callback is
+  // copied by value into this class's own callback_ the moment
+  // CreateViewForWidget() constructs this view (which, for that popup case,
+  // happens before AddNewContents() ever calls
+  // OffScreenWebContentsView::SetCallback() with the real one). Once this
+  // view already exists, only calling this directly -- not just updating the
+  // parent OffScreenWebContentsView's own copy -- lets the real callback
+  // reach it.
+  void SetCallback(const OnPaintCallback& callback) { callback_ = callback; }
+
   bool offscreen_use_shared_texture() const {
     return offscreen_use_shared_texture_;
   }

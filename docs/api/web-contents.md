@@ -2269,6 +2269,17 @@ When `webPreferences.offscreen.useSharedTexture` is `false` only values between 
 
 Returns `Integer` - If _offscreen rendering_ is enabled returns the current frame rate.
 
+#### `contents.setDeviceScaleFactor(factor)`
+
+* `factor` number
+
+If _offscreen rendering_ is enabled sets the device scale factor used to render the window,
+overriding the `deviceScaleFactor` given in `webPreferences.offscreen` at creation time.
+
+#### `contents.getDeviceScaleFactor()`
+
+Returns `number` - If _offscreen rendering_ is enabled returns the current device scale factor.
+
 #### `contents.invalidate()`
 
 Schedules a full repaint of the window this web contents is in.
@@ -2514,6 +2525,13 @@ available modes.
 
 An `Integer` property that sets the frame rate of the web contents to the specified number.
 Only values between 1 and 240 are accepted.
+
+Only applicable if _offscreen rendering_ is enabled.
+
+#### `contents.deviceScaleFactor`
+
+A `number` property that sets the device scale factor used to render the web contents,
+overriding the `deviceScaleFactor` given in `webPreferences.offscreen` at creation time.
 
 Only applicable if _offscreen rendering_ is enabled.
 

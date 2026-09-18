@@ -4422,6 +4422,17 @@ int WebContents::GetFrameRate() const {
   return osr_wcv ? osr_wcv->GetFrameRate() : 0;
 }
 
+void WebContents::SetDeviceScaleFactor(float device_scale_factor) {
+  auto* osr_wcv = GetOffScreenWebContentsView();
+  if (osr_wcv)
+    osr_wcv->SetDeviceScaleFactor(device_scale_factor);
+}
+
+float WebContents::GetDeviceScaleFactor() const {
+  auto* osr_wcv = GetOffScreenWebContentsView();
+  return osr_wcv ? osr_wcv->GetDeviceScaleFactor() : 0;
+}
+
 void WebContents::Invalidate() {
   if (IsOffScreen()) {
     auto* osr_rwhv = GetOffScreenRenderWidgetHostView();
@@ -5477,6 +5488,8 @@ void WebContents::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("isPainting", &WebContents::IsPainting)
       .SetMethod("setFrameRate", &WebContents::SetFrameRate)
       .SetMethod("getFrameRate", &WebContents::GetFrameRate)
+      .SetMethod("setDeviceScaleFactor", &WebContents::SetDeviceScaleFactor)
+      .SetMethod("getDeviceScaleFactor", &WebContents::GetDeviceScaleFactor)
       .SetMethod("invalidate", &WebContents::Invalidate)
       .SetMethod("getType", &WebContents::type)
       .SetMethod("_getPreloadScript", &WebContents::GetPreloadScript)

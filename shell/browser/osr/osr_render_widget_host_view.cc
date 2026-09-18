@@ -168,7 +168,12 @@ OffScreenRenderWidgetHostView::OffScreenRenderWidgetHostView(
       offscreen_use_shared_texture_(offscreen_use_shared_texture),
       offscreen_shared_texture_pixel_format_(
           offscreen_shared_texture_pixel_format),
-      offscreen_device_scale_factor_(offscreen_device_scale_factor),
+      // Popup, child and guest views inherit the parent's live scale factor
+      // so they match it even after SetDeviceScaleFactor() has changed it
+      // from the creation-time value their OffScreenWebContentsView holds.
+      offscreen_device_scale_factor_(
+          parent_host_view ? parent_host_view->device_scale_factor()
+                           : offscreen_device_scale_factor),
       callback_(callback),
       frame_rate_(frame_rate),
       size_(initial_size),
@@ -960,6 +965,38 @@ void OffScreenRenderWidgetHostView::SetPainting(bool painting) {
   } else if (host_display_client_) {
     host_display_client_->SetActive(is_painting());
   }
+}
+
+void OffScreenRenderWidgetHostView::SetDeviceScaleFactor(
+    float device_scale_factor) {
+  if (cc::MathUtil::IsWithinEpsilon(device_scale_factor, 0.0f))
+    device_scale_factor = 1.0f;
+
+  if (cc::MathUtil::IsWithinEpsilon(device_scale_factor,
+                                    offscreen_device_scale_factor_))
+    return;
+
+  offscreen_device_scale_factor_ = device_scale_factor;
+
+  // Refreshes the cached ScreenInfo (which is where GetDeviceScaleFactor()
+  // actually reads from -- offscreen_device_scale_factor_ alone isn't live
+  // until this runs) and notifies the renderer via
+  // RenderWidgetHostImpl::SynchronizeVisualProperties(), the same call
+  // ResizeRootLayer() makes for a size change.
+  SynchronizeVisualProperties();
+
+  PropagateDeviceScaleFactor();
+}
+
+void OffScreenRenderWidgetHostView::PropagateDeviceScaleFactor() {
+  if (popup_host_view_)
+    popup_host_view_->SetDeviceScaleFactor(offscreen_device_scale_factor_);
+
+  if (child_host_view_)
+    child_host_view_->SetDeviceScaleFactor(offscreen_device_scale_factor_);
+
+  for (auto* guest_host_view : guest_host_views_)
+    guest_host_view->SetDeviceScaleFactor(offscreen_device_scale_factor_);
 }
 
 void OffScreenRenderWidgetHostView::SetFrameRate(int frame_rate) {

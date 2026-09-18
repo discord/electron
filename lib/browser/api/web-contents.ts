@@ -905,6 +905,11 @@ WebContents.prototype._init = function () {
     set: (rate) => this.setFrameRate(rate)
   });
 
+  Object.defineProperty(this, 'deviceScaleFactor', {
+    get: () => this.getDeviceScaleFactor(),
+    set: (factor) => this.setDeviceScaleFactor(factor)
+  });
+
   Object.defineProperty(this, 'backgroundThrottling', {
     get: () => this.getBackgroundThrottling(),
     set: (allowed) => this.setBackgroundThrottling(allowed)

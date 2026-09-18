@@ -101,6 +101,8 @@ class OffScreenWebContentsView : public content::WebContentsView,
   bool IsPainting() const;
   void SetFrameRate(int frame_rate);
   int GetFrameRate() const;
+  void SetDeviceScaleFactor(float device_scale_factor);
+  float GetDeviceScaleFactor() const;
 
  private:
 #if BUILDFLAG(IS_MAC)
@@ -115,7 +117,7 @@ class OffScreenWebContentsView : public content::WebContentsView,
   const bool transparent_;
   const bool offscreen_use_shared_texture_;
   const std::string offscreen_shared_texture_pixel_format_;
-  const float offscreen_device_scale_factor_;
+  float offscreen_device_scale_factor_;
   bool painting_ = true;
   int frame_rate_ = 60;
   OnPaintCallback callback_;

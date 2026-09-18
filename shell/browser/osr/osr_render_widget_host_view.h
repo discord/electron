@@ -239,6 +239,9 @@ class OffScreenRenderWidgetHostView
   void SetFrameRate(int frame_rate);
   int frame_rate() const { return frame_rate_; }
 
+  void SetDeviceScaleFactor(float device_scale_factor);
+  float device_scale_factor() const { return offscreen_device_scale_factor_; }
+
   bool offscreen_use_shared_texture() const {
     return offscreen_use_shared_texture_;
   }
@@ -274,6 +277,9 @@ class OffScreenRenderWidgetHostView
   void ReleaseCompositor();
   void SetupFrameRate(bool force);
   void ResizeRootLayer(bool force);
+  // Applies this view's device scale factor to its popup, child and guest
+  // views, which are composited into or embedded in it.
+  void PropagateDeviceScaleFactor();
 
   viz::FrameSinkId AllocateFrameSinkId();
 

@@ -348,6 +348,8 @@ class WebContents final : public ExclusiveAccessContext,
   bool IsPainting() const;
   void SetFrameRate(int frame_rate);
   int GetFrameRate() const;
+  void SetDeviceScaleFactor(float device_scale_factor);
+  float GetDeviceScaleFactor() const;
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
 

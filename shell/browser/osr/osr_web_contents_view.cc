@@ -5,6 +5,7 @@
 #include "shell/browser/osr/osr_web_contents_view.h"
 
 #include "base/check.h"
+#include "cc/base/math_util.h"
 #include "content/browser/web_contents/web_contents_impl.h"  // nogncheck
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -212,6 +213,24 @@ int OffScreenWebContentsView::GetFrameRate() const {
   if (auto* view = GetView())
     return view->frame_rate();
   return frame_rate_;
+}
+
+void OffScreenWebContentsView::SetDeviceScaleFactor(
+    float device_scale_factor) {
+  // Same clamp OffScreenRenderWidgetHostView applies, so the value stored
+  // here (returned before a view exists) matches the view's.
+  if (cc::MathUtil::IsWithinEpsilon(device_scale_factor, 0.0f))
+    device_scale_factor = 1.0f;
+
+  offscreen_device_scale_factor_ = device_scale_factor;
+  if (auto* view = GetView())
+    view->SetDeviceScaleFactor(device_scale_factor);
+}
+
+float OffScreenWebContentsView::GetDeviceScaleFactor() const {
+  if (auto* view = GetView())
+    return view->device_scale_factor();
+  return offscreen_device_scale_factor_;
 }
 
 OffScreenRenderWidgetHostView* OffScreenWebContentsView::GetView() const {

@@ -1,0 +1,795 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Sean Stanek <sean.stanek@discordapp.com>
+Date: Sun, 20 Sep 2026 17:42:58 -0700
+Subject: [crash] Include code integrity scan in crash handler and put results
+ in .dmp file
+
+diff --git a/components/crash/core/app/BUILD.gn b/components/crash/core/app/BUILD.gn
+index b25d2303fd3056a6e063bb59b9a6448c1a6e249f..27d26b6ce4435ed6e06a7264ae369f586233d1d0 100644
+--- a/components/crash/core/app/BUILD.gn
++++ b/components/crash/core/app/BUILD.gn
+@@ -160,6 +160,8 @@ if (is_win) {
+     sources = [
+       "crash_switches.cc",
+       "crash_switches.h",
++      "discord_code_integrity_win.cc",
++      "discord_code_integrity_win.h",
+       "fallback_crash_handler_launcher_win.cc",
+       "fallback_crash_handler_launcher_win.h",
+       "fallback_crash_handler_win.cc",
+@@ -180,6 +182,7 @@ if (is_win) {
+       "//third_party/crashpad/crashpad/client",
+       "//third_party/crashpad/crashpad/handler",
+       "//third_party/crashpad/crashpad/minidump",
++      "//third_party/crashpad/crashpad/snapshot",
+       "//third_party/crashpad/crashpad/util",
+     ]
+ 
+diff --git a/components/crash/core/app/discord_code_integrity_win.cc b/components/crash/core/app/discord_code_integrity_win.cc
+new file mode 100644
+index 0000000000000000000000000000000000000000..5252039f6f1389a4e11c9bba214c8d0e6523d34f
+--- /dev/null
++++ b/components/crash/core/app/discord_code_integrity_win.cc
+@@ -0,0 +1,654 @@
++#include "components/crash/core/app/discord_code_integrity_win.h"
++
++#include <windows.h>
++
++// Must be included after windows.h.
++#include <psapi.h>
++
++#include <algorithm>
++#include <array>
++#include <cstdlib>
++#include <string>
++#include <type_traits>
++#include <utility>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/files/file.h"
++#include "base/files/file_path.h"
++#include "base/process/process.h"
++#include "base/strings/utf_string_conversions.h"
++#include "third_party/crashpad/crashpad/minidump/minidump_user_extension_stream_data_source.h"
++#include "third_party/crashpad/crashpad/snapshot/cpu_context.h"
++#include "third_party/crashpad/crashpad/snapshot/exception_snapshot.h"
++#include "third_party/crashpad/crashpad/snapshot/module_snapshot.h"
++#include "third_party/crashpad/crashpad/snapshot/process_snapshot.h"
++#include "third_party/crashpad/crashpad/util/process/process_memory.h"
++
++namespace discord_crash {
++
++namespace {
++
++constexpr uint32_t kMaxRelocDirectoryBytes = 32 * 1024 * 1024;
++constexpr uint32_t kMaxRelocBlocks = 65536;
++
++class BufferExtensionStreamDataSource final
++  : public crashpad::MinidumpUserExtensionStreamDataSource {
++public:
++    BufferExtensionStreamDataSource(uint32_t stream_type, std::string data)
++      : crashpad::MinidumpUserExtensionStreamDataSource(stream_type)
++      , data_(std::move(data))
++    {
++    }
++
++    BufferExtensionStreamDataSource(const BufferExtensionStreamDataSource&) = delete;
++    BufferExtensionStreamDataSource& operator=(const BufferExtensionStreamDataSource&) = delete;
++
++    size_t StreamDataSize() final { return data_.size(); }
++
++    bool ReadStreamData(Delegate* delegate) final
++    {
++        return delegate->ExtensionStreamDataSourceRead(data_.data(), data_.size());
++    }
++
++private:
++    std::string data_;
++};
++
++// Minimal reader for a PE image as it sits on disk.
++class PeFileReader {
++public:
++    bool Open(const base::FilePath& path)
++    {
++        file_.Initialize(
++          path, base::File::FLAG_OPEN | base::File::FLAG_READ | base::File::FLAG_WIN_SHARE_DELETE);
++        if (!file_.IsValid()) {
++            return false;
++        }
++
++        IMAGE_DOS_HEADER dos_header = {};
++        if (!ReadObjectAt(0, dos_header) || dos_header.e_magic != IMAGE_DOS_SIGNATURE ||
++            dos_header.e_lfanew < 0) {
++            return false;
++        }
++
++        const int64_t nt_offset = dos_header.e_lfanew;
++
++        DWORD signature = 0;
++        if (!ReadObjectAt(nt_offset, signature) || signature != IMAGE_NT_SIGNATURE) {
++            return false;
++        }
++
++        IMAGE_FILE_HEADER file_header = {};
++        const int64_t file_header_offset = nt_offset + sizeof(DWORD);
++        if (!ReadObjectAt(file_header_offset, file_header)) {
++            return false;
++        }
++
++        const int64_t optional_header_offset = file_header_offset + sizeof(IMAGE_FILE_HEADER);
++
++        WORD optional_magic = 0;
++        if (!ReadObjectAt(optional_header_offset, optional_magic)) {
++            return false;
++        }
++
++        IMAGE_DATA_DIRECTORY reloc_directory = {};
++        if (optional_magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
++            IMAGE_OPTIONAL_HEADER64 optional_header = {};
++            if (!ReadObjectAt(optional_header_offset, optional_header)) {
++                return false;
++            }
++            image_base_ = optional_header.ImageBase;
++            if (optional_header.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC) {
++                reloc_directory = optional_header.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
++            }
++        }
++        else if (optional_magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
++            IMAGE_OPTIONAL_HEADER32 optional_header = {};
++            if (!ReadObjectAt(optional_header_offset, optional_header)) {
++                return false;
++            }
++            image_base_ = optional_header.ImageBase;
++            if (optional_header.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC) {
++                reloc_directory = optional_header.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
++            }
++        }
++        else {
++            return false;
++        }
++
++        reloc_rva_ = reloc_directory.VirtualAddress;
++        reloc_size_ = reloc_directory.Size;
++
++        const WORD section_count = file_header.NumberOfSections;
++        if (section_count == 0 || section_count > 96) {
++            return false;
++        }
++
++        const int64_t section_table_offset =
++          optional_header_offset + file_header.SizeOfOptionalHeader;
++
++        sections_.resize(section_count);
++        if (!ReadContainerAt(section_table_offset, sections_)) {
++            sections_.clear();
++            return false;
++        }
++
++        return true;
++    }
++
++    // Returns the section covering `rva`, or null when no section does.
++    const IMAGE_SECTION_HEADER* FindSectionForRva(uint32_t rva) const
++    {
++        for (const IMAGE_SECTION_HEADER& section : sections_) {
++            if (rva >= section.VirtualAddress &&
++                rva - section.VirtualAddress < VirtualExtent(section)) {
++                return &section;
++            }
++        }
++        return nullptr;
++    }
++
++    // Returns the executable section covering `rva`, or null when no section does.
++    const IMAGE_SECTION_HEADER* FindExecutableSectionForRva(uint32_t rva) const
++    {
++        const IMAGE_SECTION_HEADER* section = FindSectionForRva(rva);
++        if (!section || !(section->Characteristics & IMAGE_SCN_MEM_EXECUTE)) {
++            return nullptr;
++        }
++        return section;
++    }
++
++    // A section's in-memory extent. VirtualSize is zero for some older linkers,
++    // in which case the raw size is what gets mapped.
++    static uint32_t VirtualExtent(const IMAGE_SECTION_HEADER& section)
++    {
++        return section.Misc.VirtualSize ? section.Misc.VirtualSize : section.SizeOfRawData;
++    }
++
++    // Reads exactly `sizeof(T)` bytes into `out`.
++    template <typename T>
++    bool ReadObjectAt(int64_t offset, T& out)
++    {
++        if constexpr (std::has_unique_object_representations_v<T>) {
++            return ReadSpanAt(offset, base::byte_span_from_ref(out));
++        }
++        else {
++            return ReadSpanAt(offset, base::byte_span_from_ref(base::allow_nonunique_obj, out));
++        }
++    }
++
++    // Reads a container's entire contents into `out`.
++    template <typename Container>
++    bool ReadContainerAt(int64_t offset, Container& out)
++    {
++        using Element = typename Container::value_type;
++        if constexpr (std::has_unique_object_representations_v<Element>) {
++            return ReadSpanAt(offset, base::as_writable_byte_span(out));
++        }
++        else {
++            return ReadSpanAt(offset, base::as_writable_byte_span(base::allow_nonunique_obj, out));
++        }
++    }
++
++    bool ReadSpanAt(int64_t offset, base::span<uint8_t> buffer)
++    {
++        return offset >= 0 && file_.ReadAndCheck(offset, buffer);
++    }
++
++    uint32_t reloc_rva() const { return reloc_rva_; }
++    uint32_t reloc_size() const { return reloc_size_; }
++    uint64_t image_base() const { return image_base_; }
++
++private:
++    base::File file_;
++    std::vector<IMAGE_SECTION_HEADER> sections_;
++    uint32_t reloc_rva_ = 0;
++    uint32_t reloc_size_ = 0;
++    uint64_t image_base_ = 0;
++};
++
++// Number of bytes the loader rewrites for a given relocation type. Unknown
++// types are treated as the widest pointer so they are excluded rather than
++// misreported as tampering.
++uint32_t RelocationWidth(uint16_t type)
++{
++    switch (type) {
++    case IMAGE_REL_BASED_ABSOLUTE:
++        return 0;
++    case IMAGE_REL_BASED_HIGH:
++    case IMAGE_REL_BASED_LOW:
++    case IMAGE_REL_BASED_HIGHADJ:
++        return 2;
++    case IMAGE_REL_BASED_HIGHLOW:
++        return 4;
++    case IMAGE_REL_BASED_DIR64:
++        return 8;
++    default:
++        return 8;
++    }
++}
++
++// Whether the delta can be reproduced exactly for this type. The partial-word
++// types rewrite only half of a pointer and HIGHADJ additionally depends on an
++// adjustment carried in the next entry; all three are 32-bit-only and vanishing
++// rare, so those bytes are excluded rather than approximated.
++bool CanApplyRelocation(uint16_t type)
++{
++    return type == IMAGE_REL_BASED_HIGHLOW || type == IMAGE_REL_BASED_DIR64;
++}
++
++template <typename T>
++T ReadLittleEndian(const std::vector<uint8_t>& bytes, size_t offset)
++{
++    T value = 0;
++    for (size_t i = sizeof(T); i-- > 0;) {
++        value = static_cast<T>((value << 8) | bytes[offset + i]);
++    }
++    return value;
++}
++
++template <typename T>
++void WriteLittleEndian(std::vector<uint8_t>& bytes, size_t offset, T value)
++{
++    for (size_t i = 0; i < sizeof(T); ++i) {
++        bytes[offset + i] = static_cast<uint8_t>(value);
++        value = static_cast<T>(value >> 8);
++    }
++}
++
++// Rewrites `disk_bytes` the way the loader rewrote the image when it mapped it
++// at a different base, so relocated bytes can be compared for integrity.
++// Records which bytes a relocation covered, so the caller can report them
++// separately, and which ones could not be reconstructed and must be dropped.
++bool ApplyRelocations(PeFileReader& pe,
++                      uint32_t range_rva,
++                      uint32_t range_size,
++                      int64_t delta,
++                      std::vector<uint8_t>* disk_bytes,
++                      std::vector<uint8_t>* reloc_covered,
++                      std::vector<uint8_t>* unverifiable)
++{
++    if (pe.reloc_rva() == 0 || pe.reloc_size() == 0) {
++        // No relocation directory at all, so nothing was relocated.
++        return true;
++    }
++    if (pe.reloc_size() > kMaxRelocDirectoryBytes) {
++        return false;
++    }
++
++    // The directory normally lives in .reloc, which is not executable, so this
++    // needs plain containment rather than the executable-only lookup.
++    const uint32_t reloc_rva = pe.reloc_rva();
++    const IMAGE_SECTION_HEADER* holder = pe.FindSectionForRva(reloc_rva);
++    if (!holder) {
++        return false;
++    }
++    const uint32_t reloc_offset_in_section = reloc_rva - holder->VirtualAddress;
++    if (reloc_offset_in_section >= holder->SizeOfRawData) {
++        return false;
++    }
++    const int64_t reloc_file_offset = holder->PointerToRawData + reloc_offset_in_section;
++
++    const uint64_t range_end = static_cast<uint64_t>(range_rva) + range_size;
++
++    int64_t cursor = reloc_file_offset;
++    const int64_t reloc_end = reloc_file_offset + pe.reloc_size();
++    uint32_t blocks_visited = 0;
++
++    while (cursor + static_cast<int64_t>(sizeof(IMAGE_BASE_RELOCATION)) <= reloc_end) {
++        if (++blocks_visited > kMaxRelocBlocks) {
++            return false;
++        }
++
++        IMAGE_BASE_RELOCATION block = {};
++        if (!pe.ReadObjectAt(cursor, block)) {
++            return false;
++        }
++        if (block.SizeOfBlock < sizeof(IMAGE_BASE_RELOCATION) ||
++            cursor + block.SizeOfBlock > reloc_end) {
++            return false;
++        }
++
++        // Blocks are emitted in ascending RVA order, so once a block starts past
++        // the range there is nothing left to find.
++        if (block.VirtualAddress >= range_end) {
++            break;
++        }
++
++        // A block covers 4 KiB of RVA space, plus up to 8 bytes for a final entry
++        // that straddles the block boundary. Skip blocks that cannot reach the
++        // range at all.
++        if (static_cast<uint64_t>(block.VirtualAddress) + 0x1000 + 8 > range_rva) {
++            const uint32_t entry_bytes = block.SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION);
++            const uint32_t entry_count = entry_bytes / sizeof(uint16_t);
++
++            std::vector<uint16_t> entries(entry_count);
++            if (entry_count != 0 &&
++                !pe.ReadContainerAt(cursor + sizeof(IMAGE_BASE_RELOCATION), entries)) {
++                return false;
++            }
++
++            for (uint32_t i = 0; i < entry_count; ++i) {
++                const uint16_t entry = entries[i];
++                const uint16_t type = entry >> 12;
++                // HIGHADJ consumes a second entry holding the adjustment value, which
++                // is data rather than another relocation.
++                if (type == IMAGE_REL_BASED_HIGHADJ) {
++                    ++i;
++                }
++
++                const uint32_t width = RelocationWidth(type);
++                if (width == 0) {
++                    continue;
++                }
++
++                const uint64_t entry_rva =
++                  static_cast<uint64_t>(block.VirtualAddress) + (entry & 0x0FFF);
++                if (entry_rva + width <= range_rva || entry_rva >= range_end) {
++                    continue;
++                }
++
++                // An entry hanging off either end of the range cannot be reconstructed
++                // without bytes we did not read, so drop the part that is in range.
++                const bool reconstructable = CanApplyRelocation(type) && entry_rva >= range_rva &&
++                  entry_rva + width <= range_end;
++                if (!reconstructable) {
++                    const uint64_t first = std::max<uint64_t>(entry_rva, range_rva);
++                    const uint64_t last = std::min<uint64_t>(entry_rva + width, range_end);
++                    for (uint64_t rva = first; rva < last; ++rva) {
++                        (*unverifiable)[static_cast<size_t>(rva - range_rva)] = 1;
++                    }
++                    continue;
++                }
++
++                const size_t offset = static_cast<size_t>(entry_rva - range_rva);
++                if (type == IMAGE_REL_BASED_DIR64) {
++                    WriteLittleEndian<uint64_t>(*disk_bytes,
++                                                offset,
++                                                ReadLittleEndian<uint64_t>(*disk_bytes, offset) +
++                                                  static_cast<uint64_t>(delta));
++                }
++                else {
++                    WriteLittleEndian<uint32_t>(*disk_bytes,
++                                                offset,
++                                                ReadLittleEndian<uint32_t>(*disk_bytes, offset) +
++                                                  static_cast<uint32_t>(delta));
++                }
++
++                for (uint32_t byte = 0; byte < width; ++byte) {
++                    (*reloc_covered)[offset + byte] = 1;
++                }
++            }
++        }
++
++        cursor += block.SizeOfBlock;
++    }
++
++    return true;
++}
++
++} // namespace
++
++std::unique_ptr<crashpad::MinidumpUserExtensionStreamDataSource> CodeIntegrityUserStreamDataSource::
++  ProduceStreamData(crashpad::ProcessSnapshot* process_snapshot)
++{
++    if (!process_snapshot) {
++        return nullptr;
++    }
++
++    const crashpad::ExceptionSnapshot* exception = process_snapshot->Exception();
++    if (!exception) {
++        return nullptr;
++    }
++
++    const crashpad::CPUContext* context = exception->Context();
++    if (!context) {
++        return nullptr;
++    }
++
++    const uint64_t instruction_pointer = context->InstructionPointer();
++    if (instruction_pointer == 0) {
++        return nullptr;
++    }
++
++    // Locate the module the faulting instruction belongs to. Anything not in a
++    // module (JIT-generated code, shellcode, a wild jump) has no file to compare
++    // against, so no stream is produced.
++    const crashpad::ModuleSnapshot* module = nullptr;
++    for (const crashpad::ModuleSnapshot* candidate : process_snapshot->Modules()) {
++        if (!candidate || candidate->Size() == 0) {
++            continue;
++        }
++        if (instruction_pointer >= candidate->Address() &&
++            instruction_pointer - candidate->Address() < candidate->Size()) {
++            module = candidate;
++            break;
++        }
++    }
++    // RVAs are 32-bit in the PE format, so a module claiming to be larger than
++    // that is malformed and nothing below would be meaningful.
++    if (!module || module->Size() > UINT32_MAX) {
++        return nullptr;
++    }
++
++    const crashpad::ProcessMemory* memory = process_snapshot->Memory();
++    if (!memory) {
++        return nullptr;
++    }
++
++    SYSTEM_INFO system_info = {};
++    ::GetSystemInfo(&system_info);
++    const uint32_t page_size = system_info.dwPageSize;
++    if (page_size == 0 || (page_size & (page_size - 1)) != 0) {
++        return nullptr;
++    }
++
++    const uint64_t module_base = module->Address();
++    const uint64_t crash_page = instruction_pointer & ~(uint64_t{page_size} - 1);
++    const bool has_preceding_page = crash_page >= module_base + page_size;
++    const uint64_t preceding_page = crash_page - page_size;
++
++    const base::FilePath module_path(base::UTF8ToWide(module->Name()));
++    PeFileReader pe;
++    if (!pe.Open(module_path)) {
++        // If the module file is gone or unreadable, nothing can be concluded.
++        return nullptr;
++    }
++
++    const uint32_t crash_page_rva = static_cast<uint32_t>(crash_page - module_base);
++    const IMAGE_SECTION_HEADER* section = pe.FindExecutableSectionForRva(crash_page_rva);
++    if (!section) {
++        return nullptr;
++    }
++
++    uint32_t flags = 0;
++
++    // Only take the preceding page when it is still inside the same executable
++    // section, which keeps the compared range contiguous in both the file and
++    // the image.
++    uint32_t start_rva = crash_page_rva;
++    uint32_t crash_page_offset = 0;
++    if (has_preceding_page) {
++        const uint32_t preceding_rva = static_cast<uint32_t>(preceding_page - module_base);
++        if (preceding_rva >= section->VirtualAddress) {
++            start_rva = preceding_rva;
++            crash_page_offset = page_size;
++        }
++    }
++
++    // Clamp the range to what the section actually has on disk and in memory.
++    // The tail of a section is zero padding with no backing raw data.
++    const uint32_t offset_in_section = start_rva - section->VirtualAddress;
++    const uint32_t raw_available =
++      section->SizeOfRawData > offset_in_section ? section->SizeOfRawData - offset_in_section : 0;
++    const uint32_t virtual_available = PeFileReader::VirtualExtent(*section) > offset_in_section
++      ? PeFileReader::VirtualExtent(*section) - offset_in_section
++      : 0;
++
++    // Ask for the crash page plus both neighbours, if they exist.
++    const uint64_t requested_size =
++      static_cast<uint64_t>(crash_page_offset) + 2 * uint64_t{page_size};
++    const uint32_t compare_size =
++      static_cast<uint32_t>(std::min<uint64_t>({requested_size, raw_available, virtual_available}));
++
++    // The crash page is the point of the exercise; if the clamp cut it out there
++    // is nothing worth reporting.
++    if (compare_size <= crash_page_offset) {
++        return nullptr;
++    }
++
++    const uint32_t instruction_pointer_offset_in_range =
++      static_cast<uint32_t>(instruction_pointer - (module_base + start_rva));
++
++    // The range is a contiguous run of pages from start_rva, so page i of the run
++    // is pages[i] and the crash page is at crash_page_index. A trailing partial
++    // page still counts here: it was compared, so its residency matters.
++    const DWORD pages_touched = (compare_size + page_size - 1) / page_size;
++    const DWORD crash_page_index = crash_page_offset / page_size;
++
++    // Query residency before touching the pages: reading process memory can fault
++    // a page in and change what QueryWorkingSetEx would have reported. Everything
++    // above is arithmetic over the PE headers, which does not disturb the target.
++    std::array<PSAPI_WORKING_SET_EX_INFORMATION, 3> working_set = {};
++    const base::span<PSAPI_WORKING_SET_EX_INFORMATION> pages =
++      base::span(working_set).first(pages_touched);
++    for (size_t i = 0; i < pages.size(); ++i) {
++        pages[i].VirtualAddress =
++          reinterpret_cast<PVOID>(module_base + start_rva + uint64_t{i} * page_size);
++    }
++
++    const base::Process process = base::Process::OpenWithAccess(
++      process_snapshot->ProcessID(), PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
++    if (process.IsValid() &&
++        ::QueryWorkingSetEx(
++          process.Handle(), pages.data(), static_cast<DWORD>(pages.size_bytes()))) {
++        flags |= kCodeIntegrityFlagWorkingSetQueried;
++
++        // A shared page is still backed by the image mapping, so it cannot have
++        // been privately written. Private means copy-on-write happened, which
++        // relocations also cause, so this is a hint rather than a verdict.
++        const auto is_private = [pages](size_t i) {
++            return i < pages.size() && pages[i].VirtualAttributes.Valid &&
++              !pages[i].VirtualAttributes.Shared;
++        };
++        if (is_private(crash_page_index)) {
++            flags |= kCodeIntegrityFlagCrashPagePrivate;
++        }
++        if (crash_page_index > 0 && is_private(crash_page_index - 1)) {
++            flags |= kCodeIntegrityFlagPrecedingPagePrivate;
++        }
++        if (is_private(crash_page_index + 1)) {
++            flags |= kCodeIntegrityFlagFollowingPagePrivate;
++        }
++    }
++
++    std::vector<uint8_t> disk_bytes(compare_size);
++    if (!pe.ReadContainerAt(section->PointerToRawData + offset_in_section, disk_bytes)) {
++        return nullptr;
++    }
++
++    std::vector<uint8_t> memory_bytes(compare_size);
++    if (!memory->Read(module_base + start_rva, compare_size, memory_bytes.data())) {
++        return nullptr;
++    }
++
++    const int64_t relocation_delta = static_cast<int64_t>(module_base - pe.image_base());
++
++    std::vector<uint8_t> reloc_covered(compare_size, 0);
++    std::vector<uint8_t> unverifiable(compare_size, 0);
++    if (ApplyRelocations(pe,
++                         start_rva,
++                         compare_size,
++                         relocation_delta,
++                         &disk_bytes,
++                         &reloc_covered,
++                         &unverifiable)) {
++        flags |= kCodeIntegrityFlagRelocationsApplied;
++    }
++    else {
++        // A partial walk may already have rewritten some of the buffer, so start
++        // over from the file and compare without relocation handling at all. The
++        // cleared flag tells the reader that relocated bytes are counted raw.
++        std::fill(reloc_covered.begin(), reloc_covered.end(), 0);
++        std::fill(unverifiable.begin(), unverifiable.end(), 0);
++        if (!pe.ReadContainerAt(section->PointerToRawData + offset_in_section, disk_bytes)) {
++            return nullptr;
++        }
++    }
++
++    uint32_t bytes_compared = 0;
++    uint32_t bytes_different = 0;
++    uint32_t reloc_bytes_compared = 0;
++    uint32_t reloc_bytes_different = 0;
++    uint32_t bytes_skipped = 0;
++
++    // Distance from the instruction pointer to the closest differing byte.
++    int32_t nearest_difference_from_instruction_pointer = 0;
++    for (uint32_t i = 0; i < compare_size; ++i) {
++        if (unverifiable[i]) {
++            ++bytes_skipped;
++            continue;
++        }
++        ++bytes_compared;
++        const bool differs = disk_bytes[i] != memory_bytes[i];
++        if (differs) {
++            const int32_t from_instruction_pointer =
++              static_cast<int32_t>(i) - static_cast<int32_t>(instruction_pointer_offset_in_range);
++            if (bytes_different == 0 ||
++                std::abs(from_instruction_pointer) <
++                  std::abs(nearest_difference_from_instruction_pointer)) {
++                nearest_difference_from_instruction_pointer = from_instruction_pointer;
++            }
++            ++bytes_different;
++        }
++        if (reloc_covered[i]) {
++            ++reloc_bytes_compared;
++            if (differs) {
++                ++reloc_bytes_different;
++            }
++        }
++    }
++
++    if (bytes_compared == 0) {
++        return nullptr;
++    }
++
++    if (crash_page_index > 0) {
++        flags |= kCodeIntegrityFlagPrecedingPageCompared;
++    }
++    if (pages_touched > crash_page_index + 1) {
++        flags |= kCodeIntegrityFlagFollowingPageCompared;
++    }
++
++    std::string module_name = module_path.BaseName().AsUTF8Unsafe();
++    module_name.resize(std::min<size_t>(module_name.size(), MAX_PATH));
++
++    CodeIntegrityStreamData header = {};
++    header.version = kCodeIntegrityStreamVersion;
++    header.flags = flags;
++    header.instruction_pointer = instruction_pointer;
++    header.module_base = module_base;
++    header.module_size = module->Size();
++    header.relocation_delta = relocation_delta;
++    header.page_size = page_size;
++    header.pages_compared = pages_touched;
++    header.bytes_compared = bytes_compared;
++    header.bytes_different = bytes_different;
++    header.nearest_difference_from_instruction_pointer =
++      nearest_difference_from_instruction_pointer;
++    header.reloc_bytes_compared = reloc_bytes_compared;
++    header.reloc_bytes_different = reloc_bytes_different;
++    header.bytes_skipped = bytes_skipped;
++    header.module_name_bytes = static_cast<uint32_t>(module_name.size());
++
++    std::string payload;
++    payload.reserve(sizeof(header) + module_name.size());
++    payload.append(reinterpret_cast<const char*>(&header), sizeof(header));
++    payload.append(module_name);
++
++    return std::make_unique<BufferExtensionStreamDataSource>(kCodeIntegrityStreamType,
++                                                             std::move(payload));
++}
++
++} // namespace discord_crash
+diff --git a/components/crash/core/app/discord_code_integrity_win.h b/components/crash/core/app/discord_code_integrity_win.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..7016c6c45dc2eaa1c2cfca9a38a61e2e2f90a54e
+--- /dev/null
++++ b/components/crash/core/app/discord_code_integrity_win.h
+@@ -0,0 +1,80 @@
++#ifndef COMPONENTS_CRASH_CORE_APP_DISCORD_CODE_INTEGRITY_WIN_H_
++#define COMPONENTS_CRASH_CORE_APP_DISCORD_CODE_INTEGRITY_WIN_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include <memory>
++
++#include "third_party/crashpad/crashpad/handler/user_stream_data_source.h"
++
++namespace crashpad {
++class MinidumpUserExtensionStreamDataSource;
++class ProcessSnapshot;
++} // namespace crashpad
++
++namespace discord_crash {
++
++inline constexpr uint32_t kCodeIntegrityStreamType = 0xD15C0D01;
++inline constexpr uint32_t kCodeIntegrityStreamVersion = 1;
++
++// Which pages the compared range covered. The crash page is always in it, so
++// only its neighbours need a bit.
++inline constexpr uint32_t kCodeIntegrityFlagPrecedingPageCompared = 1 << 0;
++inline constexpr uint32_t kCodeIntegrityFlagFollowingPageCompared = 1 << 1;
++
++// Whether the relocation table was applied to the on-disk bytes before comparing.
++inline constexpr uint32_t kCodeIntegrityFlagRelocationsApplied = 1 << 2;
++
++// QueryWorkingSetEx succeeded so that we could determine whether memory was
++// private or shared. Set when something triggered copy-on-write, which could
++// have been a benign relocation, but also could have been third party tampering
++// with our code memory.
++inline constexpr uint32_t kCodeIntegrityFlagWorkingSetQueried = 1 << 3;
++inline constexpr uint32_t kCodeIntegrityFlagPrecedingPagePrivate = 1 << 4;
++inline constexpr uint32_t kCodeIntegrityFlagCrashPagePrivate = 1 << 5;
++inline constexpr uint32_t kCodeIntegrityFlagFollowingPagePrivate = 1 << 6;
++
++#pragma pack(push, 1)
++
++// Payload of kCodeIntegrityStreamType, followed immediately by `module_name_bytes`
++// of the module filename (utf-8, no path, no null terminator).
++struct CodeIntegrityStreamData {
++    uint32_t version;
++    uint32_t flags;
++    uint64_t instruction_pointer;
++    uint64_t module_base;
++    uint64_t module_size;
++    int64_t relocation_delta; // module_base minus the image's preferred base
++    uint32_t page_size;
++    uint32_t pages_compared;
++    uint32_t bytes_compared;
++    uint32_t bytes_different;
++    // far away means less likely cause of crash
++    int32_t nearest_difference_from_instruction_pointer;
++    uint32_t reloc_bytes_compared;       // bytes_compared but inside relocation modified bytes
++    uint32_t reloc_bytes_different;
++    uint32_t bytes_skipped;
++    uint32_t module_name_bytes;
++};
++
++#pragma pack(pop)
++
++static_assert(sizeof(CodeIntegrityStreamData) == 76,
++              "CodeIntegrityStreamData is parsed by out-of-tree readers and "
++              "must not change layout without a version bump");
++
++class CodeIntegrityUserStreamDataSource : public crashpad::UserStreamDataSource {
++public:
++    CodeIntegrityUserStreamDataSource() = default;
++
++    CodeIntegrityUserStreamDataSource(const CodeIntegrityUserStreamDataSource&) = delete;
++    CodeIntegrityUserStreamDataSource& operator=(const CodeIntegrityUserStreamDataSource&) = delete;
++
++    std::unique_ptr<crashpad::MinidumpUserExtensionStreamDataSource> ProduceStreamData(
++      crashpad::ProcessSnapshot* process_snapshot) override;
++};
++
++} // namespace discord_crash
++
++#endif // COMPONENTS_CRASH_CORE_APP_DISCORD_CODE_INTEGRITY_WIN_H_
+diff --git a/components/crash/core/app/run_as_crashpad_handler_win.cc b/components/crash/core/app/run_as_crashpad_handler_win.cc
+index eb75397c8721a8040922670a4f61b8dc584eb8b8..e18e176a852e06eb31b50a6fce9f103b59f3bfc5 100644
+--- a/components/crash/core/app/run_as_crashpad_handler_win.cc
++++ b/components/crash/core/app/run_as_crashpad_handler_win.cc
+@@ -17,6 +17,7 @@
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/threading/platform_thread.h"
++#include "components/crash/core/app/discord_code_integrity_win.h"
+ #include "components/gwp_asan/buildflags/buildflags.h"
+ #include "components/stability_report/user_stream_data_source_win.h"
+ #include "third_party/crashpad/crashpad/client/crashpad_info.h"
+@@ -88,6 +89,9 @@ int RunAsCrashpadHandler(const base::CommandLine& command_line,
+   user_stream_data_sources.push_back(
+       std::make_unique<stability_report::UserStreamDataSourceWin>());
+ 
++  user_stream_data_sources.push_back(
++      std::make_unique<discord_crash::CodeIntegrityUserStreamDataSource>());
++
+ #if BUILDFLAG(ENABLE_GWP_ASAN)
+   user_stream_data_sources.push_back(
+       std::make_unique<gwp_asan::UserStreamDataSource>());

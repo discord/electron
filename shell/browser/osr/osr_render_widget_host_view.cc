@@ -999,6 +999,28 @@ void OffScreenRenderWidgetHostView::PropagateDeviceScaleFactor() {
     guest_host_view->SetDeviceScaleFactor(offscreen_device_scale_factor_);
 }
 
+void OffScreenRenderWidgetHostView::SetSizeAndDeviceScaleFactor(
+    const gfx::Size& size,
+    float device_scale_factor) {
+  if (cc::MathUtil::IsWithinEpsilon(device_scale_factor, 0.0f))
+    device_scale_factor = 1.0f;
+
+  size_ = size;
+  offscreen_device_scale_factor_ = device_scale_factor;
+
+  // Runs ResizeRootLayer(true) synchronously, which refreshes the cached
+  // ScreenInfo and then applies both new values to the compositor and the
+  // renderer in one sync. Doing this directly rather than through
+  // HoldResize()/ReleaseResize() avoids the posted task those defer to, so
+  // nothing can observe the new size_ against the old ScreenInfo scale in
+  // between. If a hold is already active (e.g. this is called from a paint
+  // handler inside CompositeFrame()), the sync is deferred to that hold's
+  // ReleaseResize() instead.
+  SynchronizeVisualProperties();
+
+  PropagateDeviceScaleFactor();
+}
+
 void OffScreenRenderWidgetHostView::SetFrameRate(int frame_rate) {
   if (parent_host_view_) {
     if (parent_host_view_->frame_rate() == this->frame_rate())

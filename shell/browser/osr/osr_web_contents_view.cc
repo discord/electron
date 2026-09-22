@@ -68,6 +68,10 @@ void OffScreenWebContentsView::SetNativeWindow(NativeWindow* window) {
 }
 
 void OffScreenWebContentsView::OnWindowResize() {
+  // The canvas size was set explicitly and no longer follows the window.
+  if (size_override_)
+    return;
+
   // In offscreen mode call RenderWidgetHostView's SetSize explicitly
   if (auto* view = GetView())
     view->SetSize(GetSize());
@@ -81,6 +85,8 @@ void OffScreenWebContentsView::OnWindowClosed() {
 }
 
 gfx::Size OffScreenWebContentsView::GetSize() const {
+  if (size_override_)
+    return *size_override_;
   return native_window_ ? native_window_->GetSize() : gfx::Size();
 }
 
@@ -231,6 +237,18 @@ float OffScreenWebContentsView::GetDeviceScaleFactor() const {
   if (auto* view = GetView())
     return view->device_scale_factor();
   return offscreen_device_scale_factor_;
+}
+
+void OffScreenWebContentsView::SetSizeAndDeviceScaleFactor(
+    const gfx::Size& size,
+    float device_scale_factor) {
+  if (cc::MathUtil::IsWithinEpsilon(device_scale_factor, 0.0f))
+    device_scale_factor = 1.0f;
+
+  size_override_ = size;
+  offscreen_device_scale_factor_ = device_scale_factor;
+  if (auto* view = GetView())
+    view->SetSizeAndDeviceScaleFactor(size, device_scale_factor);
 }
 
 OffScreenRenderWidgetHostView* OffScreenWebContentsView::GetView() const {

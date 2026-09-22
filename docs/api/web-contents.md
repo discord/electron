@@ -2280,6 +2280,21 @@ overriding the `deviceScaleFactor` given in `webPreferences.offscreen` at creati
 
 Returns `number` - If _offscreen rendering_ is enabled returns the current device scale factor.
 
+#### `contents.setSizeAndDeviceScaleFactor(width, height, factor)`
+
+* `width` Integer
+* `height` Integer
+* `factor` number
+
+If _offscreen rendering_ is enabled sets the rendered size and device scale factor together.
+Prefer this over calling `setDeviceScaleFactor()` alongside a separate window resize when both
+need to change at once -- it produces a single renderer synchronization instead of two, avoiding
+the frame in between where only one of the two has taken effect.
+
+Once called, the rendered size no longer follows the owning window's size: later window resizes
+don't change it (call this again instead), and `win.getSize()` keeps reporting the window's own
+size rather than the rendered size.
+
 #### `contents.invalidate()`
 
 Schedules a full repaint of the window this web contents is in.

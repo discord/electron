@@ -4433,6 +4433,15 @@ float WebContents::GetDeviceScaleFactor() const {
   return osr_wcv ? osr_wcv->GetDeviceScaleFactor() : 0;
 }
 
+void WebContents::SetSizeAndDeviceScaleFactor(int width,
+                                               int height,
+                                               float device_scale_factor) {
+  auto* osr_wcv = GetOffScreenWebContentsView();
+  if (osr_wcv)
+    osr_wcv->SetSizeAndDeviceScaleFactor(gfx::Size(width, height),
+                                          device_scale_factor);
+}
+
 void WebContents::Invalidate() {
   if (IsOffScreen()) {
     auto* osr_rwhv = GetOffScreenRenderWidgetHostView();
@@ -4447,6 +4456,12 @@ void WebContents::Invalidate() {
 
 gfx::Size WebContents::GetSizeForNewRenderView(content::WebContents* wc) {
   if (IsOffScreen() && wc == web_contents()) {
+    // A size set via setSizeAndDeviceScaleFactor() replaces the owner
+    // window's size as the size of the offscreen canvas.
+    auto* osr_wcv = GetOffScreenWebContentsView();
+    if (osr_wcv && osr_wcv->size_override())
+      return *osr_wcv->size_override();
+
     auto* relay = NativeWindowRelay::FromWebContents(web_contents());
     if (relay) {
       auto* owner_window = relay->GetNativeWindow();
@@ -5490,6 +5505,8 @@ void WebContents::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("getFrameRate", &WebContents::GetFrameRate)
       .SetMethod("setDeviceScaleFactor", &WebContents::SetDeviceScaleFactor)
       .SetMethod("getDeviceScaleFactor", &WebContents::GetDeviceScaleFactor)
+      .SetMethod("setSizeAndDeviceScaleFactor",
+                 &WebContents::SetSizeAndDeviceScaleFactor)
       .SetMethod("invalidate", &WebContents::Invalidate)
       .SetMethod("getType", &WebContents::type)
       .SetMethod("_getPreloadScript", &WebContents::GetPreloadScript)

@@ -242,6 +242,15 @@ class OffScreenRenderWidgetHostView
   void SetDeviceScaleFactor(float device_scale_factor);
   float device_scale_factor() const { return offscreen_device_scale_factor_; }
 
+  // Applies a size change and a device scale factor change in a single
+  // SynchronizeVisualProperties() call, for callers that need to change both
+  // at once (e.g. the OSR canvas moving to a differently-scaled display).
+  // Calling SetSize()/SetDeviceScaleFactor() back to back instead would
+  // trigger two separate renderer syncs, with a frame in between where only
+  // one of the two has taken effect.
+  void SetSizeAndDeviceScaleFactor(const gfx::Size& size,
+                                   float device_scale_factor);
+
   bool offscreen_use_shared_texture() const {
     return offscreen_use_shared_texture_;
   }

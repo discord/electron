@@ -7,6 +7,8 @@
 
 #include "shell/browser/native_window_observer.h"
 
+#include <optional>
+
 #include "base/memory/raw_ptr.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"  // nogncheck
@@ -103,6 +105,11 @@ class OffScreenWebContentsView : public content::WebContentsView,
   int GetFrameRate() const;
   void SetDeviceScaleFactor(float device_scale_factor);
   float GetDeviceScaleFactor() const;
+  void SetSizeAndDeviceScaleFactor(const gfx::Size& size,
+                                   float device_scale_factor);
+  const std::optional<gfx::Size>& size_override() const {
+    return size_override_;
+  }
 
  private:
 #if BUILDFLAG(IS_MAC)
@@ -118,6 +125,10 @@ class OffScreenWebContentsView : public content::WebContentsView,
   const bool offscreen_use_shared_texture_;
   const std::string offscreen_shared_texture_pixel_format_;
   float offscreen_device_scale_factor_;
+  // Set by SetSizeAndDeviceScaleFactor(). Once set, it replaces the native
+  // window's size as the size of the offscreen canvas, so later window
+  // resizes and newly created RenderWidgetHostViews don't revert it.
+  std::optional<gfx::Size> size_override_;
   bool painting_ = true;
   int frame_rate_ = 60;
   OnPaintCallback callback_;

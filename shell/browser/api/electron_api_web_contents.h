@@ -350,6 +350,9 @@ class WebContents final : public ExclusiveAccessContext,
   int GetFrameRate() const;
   void SetDeviceScaleFactor(float device_scale_factor);
   float GetDeviceScaleFactor() const;
+  void SetSizeAndDeviceScaleFactor(int width,
+                                   int height,
+                                   float device_scale_factor);
   void Invalidate();
   gfx::Size GetSizeForNewRenderView(content::WebContents*) override;
 

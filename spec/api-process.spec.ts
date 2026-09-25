@@ -75,6 +75,15 @@ describe('process module', () => {
       });
     });
 
+    if (process.platform === 'win32') {
+      describe('process.getWindowsBuildRevision()', () => {
+        it('returns the Windows Update Build Revision', async () => {
+          const buildRevision = await invoke(() => process.getWindowsBuildRevision());
+          expect(buildRevision).to.be.a('number').and.be.at.least(0);
+        });
+      });
+    }
+
     describe('process.getHeapStatistics()', () => {
       it('returns heap statistics object', async () => {
         const heapStats = await invoke(() => process.getHeapStatistics());

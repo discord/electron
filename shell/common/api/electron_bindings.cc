@@ -13,6 +13,9 @@
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/system/sys_info.h"
+#if BUILDFLAG(IS_WIN)
+#include "base/win/windows_version.h"
+#endif
 #include "electron/mas.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
@@ -32,6 +35,16 @@
 #include "third_party/blink/renderer/platform/heap/process_heap.h"  // nogncheck
 
 namespace electron {
+
+#if BUILDFLAG(IS_WIN)
+namespace {
+
+uint32_t GetWindowsBuildRevision() {
+  return base::win::OSInfo::GetInstance()->version_number().patch;
+}
+
+}  // namespace
+#endif
 
 ElectronBindings::ElectronBindings(uv_loop_t* loop) {
   uv_async_init(loop, call_next_tick_async_.get(), OnCallNextTick);
@@ -66,6 +79,7 @@ void ElectronBindings::BindProcess(v8::Isolate* isolate,
 #endif
 
 #if BUILDFLAG(IS_WIN)
+  process->SetMethod("getWindowsBuildRevision", &GetWindowsBuildRevision);
   if (IsRunningInDesktopBridge())
     process->SetReadOnly("windowsStore", true);
 #endif

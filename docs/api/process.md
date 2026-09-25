@@ -20,6 +20,7 @@ In sandboxed renderers the `process` object contains only a subset of the APIs:
 * `getProcessMemoryInfo()`
 * `getSystemMemoryInfo()`
 * `getSystemVersion()`
+* `getWindowsBuildRevision()` _Windows_
 * `getCPUUsage()`
 * `uptime()`
 * `argv`
@@ -249,6 +250,10 @@ console.log(version)
 
 > [!NOTE]
 > It returns the actual operating system version instead of kernel version on macOS unlike `os.release()`.
+
+### `process.getWindowsBuildRevision()` _Windows_
+
+Returns `number` - The Update Build Revision of the host operating system.
 
 ### `process.takeHeapSnapshot(filePath)`
 

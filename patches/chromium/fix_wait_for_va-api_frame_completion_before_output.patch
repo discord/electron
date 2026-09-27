@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jonas Bengtsson <jonas.bengtson@discordapp.com>
+Date: Sun, 27 Sep 2026 14:37:02 +0000
+Subject: fix: sync all VA-API frames before output
+
+Task-Task-Id: tsk_01M3HKY7FQ6R8KDZSDW0XTKMMR
+Co-Authored-By: Task <cap-bot@discord.com>
+
+diff --git a/media/gpu/vaapi/vaapi_video_decoder.cc b/media/gpu/vaapi/vaapi_video_decoder.cc
+index 952720dd662a177497fc6bdeb8c34d32c3c636da..575faa0ee88f168c44c5925cff0fbdca5cf96926 100644
+--- a/media/gpu/vaapi/vaapi_video_decoder.cc
++++ b/media/gpu/vaapi/vaapi_video_decoder.cc
+@@ -226,6 +226,7 @@ void VaapiVideoDecoder::Initialize(const VideoDecoderConfig& config,
+   }
+   DCHECK(!current_decode_task_);
+   DCHECK(decode_task_queue_.empty());
++  surface_sync_failed_ = false;
+ 
+   // Destroying the |decoder_| during re-initialization should release all
+   // output buffers (and there should be no output buffers to begin with if the
+@@ -405,6 +406,11 @@ void VaapiVideoDecoder::HandleDecodeTask() {
+     TRACE_EVENT("media,gpu", "VaapiVideoDecoder::Decode");
+     decode_result = decoder_->Decode();
+   }
++  if (surface_sync_failed_) {
++    SetState({DecoderStatus::Codes::kFailed,
++              "Failed to synchronize VA surface before output"});
++    return;
++  }
+   switch (decode_result) {
+     case AcceleratedVideoDecoder::kRanOutOfStreamData:
+       // Decoding was successful, notify client and try to schedule the next
+@@ -559,6 +565,8 @@ void VaapiVideoDecoder::SurfaceReady(
+   DVLOGF(4);
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+   DCHECK_EQ(state_, State::kDecoding);
++  if (surface_sync_failed_)
++    return;
+   CHECK_NE(va_surface_id, VA_INVALID_SURFACE);
+ 
+   // Find the timestamp associated with |buffer_id|. It's possible that a
+@@ -624,6 +632,11 @@ void VaapiVideoDecoder::SurfaceReady(
+   gfx::HDRMetadata hdr_metadata = static_hdr_metadata_;
+   hdr_metadata.MergeMetadataFrom(dynamic_hdr_metadata);
+   frame->set_hdr_metadata(hdr_metadata);
++  // vaEndPicture() does not guarantee decode completion, so sync before output.
++  if (!vaapi_wrapper_->SyncSurface(va_surface_id)) {
++    surface_sync_failed_ = true;
++    return;
++  }
+   output_cb_.Run(std::move(frame));
+ }
+ 
+@@ -1045,7 +1058,13 @@ void VaapiVideoDecoder::Flush() {
+ 
+   // Flush will block until SurfaceReady() has been called for every frame
+   // currently decoding.
+-  if (!decoder_->Flush()) {
++  const bool flushed = decoder_->Flush();
++  if (surface_sync_failed_) {
++    SetState({DecoderStatus::Codes::kFailed,
++              "Failed to synchronize VA surface before output"});
++    return;
++  }
++  if (!flushed) {
+     SetState({DecoderStatus::Codes::kFailed, "Failed to flush the decoder"});
+     return;
+   }
+diff --git a/media/gpu/vaapi/vaapi_video_decoder.h b/media/gpu/vaapi/vaapi_video_decoder.h
+index af24707ede5ddc27cae5a744361f26bc6aecaed1..58bb1aff7ff69043fda5ad42fa898feee22f10af 100644
+--- a/media/gpu/vaapi/vaapi_video_decoder.h
++++ b/media/gpu/vaapi/vaapi_video_decoder.h
+@@ -210,6 +210,7 @@ class VaapiVideoDecoder : public VideoDecoderMixin,
+ 
+   // The video decoder's state.
+   State state_ GUARDED_BY_CONTEXT(sequence_checker_) = State::kUninitialized;
++  bool surface_sync_failed_ GUARDED_BY_CONTEXT(sequence_checker_) = false;
+ 
+   // Callback used to notify the client when a frame is available for output.
+   PipelineOutputCB output_cb_ GUARDED_BY_CONTEXT(sequence_checker_);

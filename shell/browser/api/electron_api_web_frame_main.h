@@ -84,6 +84,7 @@ class WebFrameMain final : public gin::Wrappable<WebFrameMain>,
   WebFrameMain& operator=(const WebFrameMain&) = delete;
 
  private:
+  friend class FrameCapture;
   friend class WebContents;
 
   // Called when FrameTreeNode is deleted.
@@ -122,6 +123,8 @@ class WebFrameMain final : public gin::Wrappable<WebFrameMain>,
   void CopyVideoFrameAt(int x, int y);
   void SaveVideoFrameAs(int x, int y);
   bool Reload();
+  v8::Local<v8::Value> CaptureStream(gin::Arguments* args);
+  v8::Local<v8::Promise> CaptureImage(gin::Arguments* args);
   bool IsDestroyed() const;
   void Send(v8::Isolate* isolate,
             bool internal,

@@ -432,6 +432,112 @@ class IElectronVideoDebugLoggable : public IElectronUnknown {
   virtual void PrintDebugLog() = 0;
 };
 
+// Frame capture: GPU textures captured from a WebFrameMain via
+// `webFrameMain.captureStream()`, delivered to native code running in the
+// renderer that consumes the capture session.
+
+#define ELECTRON_FRAME_CAPTURE_V1
+
+enum ElectronCapturedTextureType : int32_t {
+  kCapturedTextureNone = 0,
+  // |handle| is an NT HANDLE to a shared ID3D11Texture2D. Open it with
+  // ID3D11Device1::OpenSharedResource1. The handle is owned by the frame.
+  kCapturedTextureDxgiNtHandle = 1,
+  // |handle| is an IOSurfaceRef owned by the frame. CFRetain it to keep it
+  // alive past the frame's lifetime.
+  kCapturedTextureIOSurface = 2,
+  // |planes| describe dmabuf file descriptors owned by the frame.
+  kCapturedTextureDmaBuf = 3,
+  // CPU fallback. |handle| points to read-only mapped pixels owned by the
+  // frame; |planes| carry per-plane offsets and strides with fd = -1.
+  kCapturedTextureSharedMemory = 4,
+};
+
+struct ElectronCapturedTexturePlane {
+  int32_t fd;
+  uint32_t stride;
+  uint64_t offset;
+  uint64_t size;
+};
+
+struct ElectronCapturedTexture {
+  // sizeof(ElectronCapturedTexture) as compiled by Electron.
+  uint32_t struct_size;
+  ElectronCapturedTextureType type;
+  ElectronVideoPixelFormat format;
+  DISCORD_RAW_PTR_EXCLUSION void* handle;
+  // Stable identity of the underlying pool buffer, for caching imported
+  // resources across frames. 0 if unavailable.
+  uint64_t buffer_id;
+  uint32_t coded_width;
+  uint32_t coded_height;
+  int32_t visible_x;
+  int32_t visible_y;
+  int32_t visible_width;
+  int32_t visible_height;
+  // Capture time on the base::TimeTicks clock (QPC-derived on Windows),
+  // shared with OnCapturedAudio timestamps.
+  int64_t timestamp_us;
+  uint64_t modifier;
+  uint32_t plane_count;
+  ElectronCapturedTexturePlane planes[4];
+  // Adapter LUID the texture was allocated on (Windows only).
+  uint32_t adapter_luid_low;
+  int32_t adapter_luid_high;
+};
+
+// A captured frame. The texture goes back to the capturer's pool as soon as
+// the last reference is released, which may happen on any thread. The pool
+// holds about ten buffers shared by every frame in flight, so release
+// promptly.
+class IElectronCapturedFrame : public IElectronUnknown {
+ public:
+  static constexpr char IID[] = "IElectronCapturedFrame";
+  virtual const ElectronCapturedTexture* GetTexture() = 0;
+};
+
+// Implemented by the native consumer. Callbacks never run on the renderer
+// main thread:
+// - OnCapturedFrame runs on a dedicated capture thread shared by all captures
+//   in the renderer, one call at a time. Blocking briefly (e.g. on a dmabuf
+//   fence) is fine but delays later frames; move heavy work to your own
+//   thread.
+// - OnCapturedAudio runs on a realtime audio thread, one call at a time, and
+//   may run concurrently with OnCapturedFrame. Don't block in it.
+// - OnCaptureStopped runs on the capture thread after the last frame and
+//   audio callback have returned. Nothing follows it, and the sink is
+//   released afterwards.
+class IElectronFrameCaptureSink : public IElectronUnknown {
+ public:
+  static constexpr char IID[] = "IElectronFrameCaptureSink";
+  virtual void OnCapturedFrame(IElectronCapturedFrame* frame) = 0;
+  // Interleaved float32 PCM from the captured frame's subtree.
+  virtual void OnCapturedAudio(const float* samples,
+                               uint32_t frame_count,
+                               uint32_t channels,
+                               uint32_t sample_rate,
+                               int64_t timestamp_us) = 0;
+  virtual void OnCaptureStopped(const char* reason) = 0;
+};
+
+class IElectronFrameCaptureManager : public IElectronUnknown {
+ public:
+  static constexpr char IID[] = "IElectronFrameCaptureManager";
+  // Attaches |sink| to the capture session |captureId|, replacing any existing
+  // sink. Pass nullptr to detach. The session may start before or after the
+  // sink is attached. If frames arrived while no sink was attached, the next
+  // sink first receives the latest of them. A sink attached after the capture
+  // stopped only receives OnCaptureStopped.
+  //
+  // May be called from any thread, including from inside a sink callback.
+  // The change is applied asynchronously on the capture thread, so a replaced
+  // sink may still receive callbacks that were already in flight; its final
+  // Release(), which may happen on either callback thread, means it will not
+  // be called again.
+  virtual ElectronVideoStatus SetSink(char const* captureId,
+                                      IElectronFrameCaptureSink* sink) = 0;
+};
+
 extern "C" {
 ELECTRON_VIDEO_EXPORT ElectronVideoStatus
 ElectronVideoCreateObject(char const* clsid,
@@ -478,6 +584,9 @@ constexpr char IElectronVideoDecoder::IID[];
 constexpr char IElectronVideoSinkAttachment::IID[];
 constexpr char IElectronVideoSinkManager::IID[];
 constexpr char IElectronVideoDebugLoggable::IID[];
+constexpr char IElectronCapturedFrame::IID[];
+constexpr char IElectronFrameCaptureSink::IID[];
+constexpr char IElectronFrameCaptureManager::IID[];
 #endif  // ELECTRON_VIDEO_DECLARE_IIDS
 
 }  // namespace electron

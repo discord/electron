@@ -4,11 +4,13 @@
 
 #include "electron/shell/renderer/electron_api_service_impl.h"
 
+#include <algorithm>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/trace_event/trace_event.h"
+#include "electron/discord/discord_frame_capture_manager.h"
 #include "gin/data_object_builder.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "shell/common/electron_constants.h"
@@ -71,6 +73,10 @@ ElectronApiServiceImpl::ElectronApiServiceImpl(
   // CreateNewWindowReply and SetPendingCreateNewWindowStartupData() stashes it
   // for us on this same call stack. The first real navigation replaces it.
   startup_data_ = std::exchange(*GetPendingNewWindowStartupData(), nullptr);
+
+  capture_target_leases_.set_disconnect_handler(
+      base::BindRepeating(&ElectronApiServiceImpl::OnCaptureTargetLeaseClosed,
+                          base::Unretained(this)));
 }
 
 // static
@@ -201,6 +207,56 @@ void ElectronApiServiceImpl::TakeHeapSnapshot(
   bool success = electron::TakeHeapSnapshot(isolate, &base_file);
 
   std::move(callback).Run(success);
+}
+
+void ElectronApiServiceImpl::BindFrameCapture(
+    const std::string& capture_id,
+    mojom::FrameCaptureParamsPtr params,
+    mojo::PendingReceiver<mojom::FrameCaptureSession> session,
+    mojo::PendingRemote<mojom::FrameCaptureHost> host) {
+  discord::DiscordFrameCaptureManager::BindCapture(
+      capture_id, std::move(params), std::move(session), std::move(host));
+}
+
+void ElectronApiServiceImpl::EnsureChildFrameCaptureTarget(
+    const blink::LocalFrameToken& child,
+    mojo::PendingReceiver<mojom::FrameCaptureTargetLease> lease,
+    EnsureChildFrameCaptureTargetCallback callback) {
+  blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
+  blink::WebLocalFrame* child_frame =
+      blink::WebLocalFrame::FromFrameToken(child);
+  if (!frame || !child_frame || child_frame->Parent() != frame) {
+    std::move(callback).Run(std::nullopt);
+    return;
+  }
+
+  std::optional<base::Token> target =
+      child_frame->EnsureOwnerElementCaptureTarget();
+  if (target) {
+    blink::WebElement owner = child_frame->FrameOwnerElement();
+    auto it = std::ranges::find_if(
+        capture_target_owners_,
+        [&](const auto& entry) { return entry.first == owner; });
+    if (it == capture_target_owners_.end()) {
+      capture_target_owners_.emplace_back(owner, 1);
+    } else {
+      ++it->second;
+    }
+    capture_target_leases_.Add(this, std::move(lease), owner);
+  }
+  std::move(callback).Run(target);
+}
+
+void ElectronApiServiceImpl::OnCaptureTargetLeaseClosed() {
+  const blink::WebElement& owner = capture_target_leases_.current_context();
+  auto it = std::ranges::find_if(
+      capture_target_owners_,
+      [&](const auto& entry) { return entry.first == owner; });
+  if (it == capture_target_owners_.end() || --it->second > 0) {
+    return;
+  }
+  capture_target_owners_.erase(it);
+  blink::WebFrame::ReleaseOwnerElementCaptureTarget(owner);
 }
 
 }  // namespace electron

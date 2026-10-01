@@ -272,6 +272,10 @@ filenames = {
   ]
 
   lib_sources = [
+    "discord/discord_frame_capture_audio_ipc.cc",
+    "discord/discord_frame_capture_audio_ipc.h",
+    "discord/discord_frame_capture_manager.cc",
+    "discord/discord_frame_capture_manager.h",
     "discord/discord_video_decoder.cc",
     "discord/discord_video_decoder.h",
     "discord/discord_video_sink_manager.cc",
@@ -325,6 +329,8 @@ filenames = {
     "shell/browser/api/electron_api_download_item.h",
     "shell/browser/api/electron_api_event_emitter.cc",
     "shell/browser/api/electron_api_event_emitter.h",
+    "shell/browser/api/electron_api_frame_capture.cc",
+    "shell/browser/api/electron_api_frame_capture.h",
     "shell/browser/api/electron_api_global_shortcut.cc",
     "shell/browser/api/electron_api_global_shortcut.h",
     "shell/browser/api/electron_api_in_app_purchase.cc",
@@ -409,6 +415,10 @@ filenames = {
     "shell/browser/browser_observer.h",
     "shell/browser/browser_process_impl.cc",
     "shell/browser/browser_process_impl.h",
+    "shell/browser/capture/frame_still.cc",
+    "shell/browser/capture/frame_still.h",
+    "shell/browser/capture/remote_consumer_video_capturer.cc",
+    "shell/browser/capture/remote_consumer_video_capturer.h",
     "shell/browser/child_web_contents_tracker.cc",
     "shell/browser/child_web_contents_tracker.h",
     "shell/browser/cookie_change_notifier.cc",

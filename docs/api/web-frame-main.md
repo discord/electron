@@ -107,6 +107,62 @@ this limitation.
 
 Returns `boolean` - Whether the reload was initiated successfully. Only results in `false` when the frame has no history.
 
+#### `frame.captureStream(options)`
+
+* `options` Object
+  * `consumerFrame` WebFrameMain - The frame whose renderer receives the
+    captured frames. Native code in that renderer claims the stream through
+    the Discord frame capture manager using `captureId`.
+  * `captureId` string (optional) - Identifier used by the consumer to claim the
+    stream. A random id is generated when omitted.
+  * `audio` boolean (optional) - Whether to also capture the audio played by
+    this frame and its descendants. Default is `false`.
+  * `maxFrameRate` Integer (optional) - Default is `60`.
+  * `maxSize` [Size](structures/size.md) (optional) - Upper bound for the
+    captured frame size. Frames are scaled down to fit while keeping their
+    aspect ratio.
+  * `pixelFormat` string (optional) - Can be `bgra`, `rgba`, `rgbaf16` or
+    `nv12`. Default is `bgra`.
+
+Returns `FrameCapture` - The capture session.
+
+Captures the rendered output of this frame as GPU shared textures without
+copying pixels through the CPU. The frame keeps rendering at full rate while
+captured, even when its window is hidden or occluded.
+
+#### `frame.captureImage([options])`
+
+* `options` Object (optional)
+  * `rect` [Rectangle](structures/rectangle.md) (optional) - Region to capture
+    in the frame's CSS pixels. Defaults to the whole viewport.
+  * `viewportSize` [Size](structures/size.md) (optional) - The frame's viewport
+    in CSS pixels (`innerWidth` x `innerHeight`), used to map `rect` onto the
+    frame's surface. Required for an accurate crop when the page is zoomed.
+  * `outputSize` [Size](structures/size.md) (optional) - Size of the encoded
+    image in pixels. The region is scaled on the GPU. Never upscales past the
+    surface resolution.
+  * `format` string (optional) - Can be `webp`, `jpeg` or `png`. Default is
+    `webp`.
+  * `quality` Integer (optional) - Between 0 and 100 for `webp` and `jpeg`.
+    Default is `92`.
+  * `timeoutMs` number (optional) - Default is `2000`.
+
+Returns `Promise<Object>` - Resolves with an object containing:
+
+* `data` Buffer - The encoded image.
+* `mimeType` string
+* `width` Integer
+* `height` Integer
+* `area` [Rectangle](structures/rectangle.md) - The copied region in surface
+  pixels.
+
+Copies the frame's last composited output, as drawn by the compositor and
+unaffected by anything the parent draws over it. Only main frames and
+out-of-process iframes can be captured; other frames reject with
+`target-unsupported`. Other rejections are `frame-gone`,
+`surface-unavailable`, `out-of-bounds`, `timeout`, `empty` and
+`encode-failed`.
+
 #### `frame.isDestroyed()`
 
 Returns `boolean` - Whether the frame is destroyed.

@@ -1,9 +1,15 @@
 module electron.mojom;
 
+import "media/mojo/mojom/audio_data_pipe.mojom";
+import "media/mojo/mojom/audio_input_stream.mojom";
+import "media/mojo/mojom/audio_parameters.mojom";
 import "mojo/public/mojom/base/big_buffer.mojom";
 import "mojo/public/mojom/base/string16.mojom";
+import "mojo/public/mojom/base/token.mojom";
+import "services/viz/privileged/mojom/compositing/frame_sink_video_capture.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
 import "third_party/blink/public/mojom/messaging/transferable_message.mojom";
+import "third_party/blink/public/mojom/tokens/tokens.mojom";
 
 // A preload script and its contents, pushed to the renderer ahead of the
 // document that needs it.
@@ -45,6 +51,44 @@ interface ElectronFrameStartup {
   SetStartupData(RendererStartupData data);
 };
 
+struct FrameCaptureParams {
+  // LUID of the adapter the textures are allocated on (Windows only).
+  uint32 adapter_luid_low;
+  int32 adapter_luid_high;
+};
+
+// Implemented by the browser for one FrameCapture session.
+interface FrameCaptureHost {
+  // Creates the loopback stream of the audio played by the captured frame and
+  // its descendants. The data pipe goes to the caller, so samples never pass
+  // through the browser. Fails while audio capture is off.
+  CreateAudioStream(
+      pending_receiver<media.mojom.AudioInputStream> stream,
+      pending_remote<media.mojom.AudioInputStreamClient> client,
+      media.mojom.AudioParameters params,
+      uint32 shared_memory_count)
+      => (media.mojom.ReadWriteAudioDataPipe? data_pipe);
+
+  // Sent whenever the size of the delivered frames changes.
+  OnResized(gfx.mojom.Size size);
+};
+
+// Implemented in the renderer that consumes a FrameCapture session. The
+// capturer in the GPU process delivers frames straight to this renderer; the
+// browser only controls the session.
+interface FrameCaptureSession {
+  // Replaces the consumer frames are delivered to. Sent each time capture
+  // (re)starts, e.g. after the GPU process restarts.
+  AttachVideoConsumer(
+      pending_receiver<viz.mojom.FrameSinkVideoConsumer> consumer);
+
+  StartAudio();
+  StopAudio();
+
+  // Ends the session. Nothing reaches the native sink after it.
+  Stop(string reason);
+};
+
 interface ElectronRenderer {
   Message(
       bool internal,
@@ -54,7 +98,26 @@ interface ElectronRenderer {
   ReceivePostMessage(string channel, blink.mojom.TransferableMessage message);
 
   TakeHeapSnapshot(handle file) => (bool success);
+
+  // Routes a capture session to native consumers registered in this renderer
+  // under |capture_id|.
+  BindFrameCapture(string capture_id,
+                   FrameCaptureParams params,
+                   pending_receiver<FrameCaptureSession> session,
+                   pending_remote<FrameCaptureHost> host);
+
+  // Tags the owner element of the same-process child frame |child| for
+  // element capture so the browser can capture it as a viz subtree. Returns
+  // null if |child| is not a same-process child of this frame.
+  // The element is kept eligible for capture while |lease| is connected.
+  EnsureChildFrameCaptureTarget(
+      blink.mojom.LocalFrameToken child,
+      pending_receiver<FrameCaptureTargetLease> lease)
+      => (mojo_base.mojom.Token? target);
 };
+
+// Held by the browser while it captures a child frame as a subtree.
+interface FrameCaptureTargetLease {};
 
 interface ElectronAutofillAgent {
   AcceptDataListSuggestion(mojo_base.mojom.String16 value);

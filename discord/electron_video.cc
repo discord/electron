@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include "electron/discord/discord_frame_capture_manager.h"
 #include "electron/discord/discord_video_decoder.h"
 #include "electron/discord/discord_video_sink_manager.h"
 #include "electron/discord/public/discord_video_frame.h"
@@ -27,6 +28,8 @@ ElectronVideoStatus ElectronVideoCreateObject(char const* clsid,
     ptr = new DiscordVideoFormat();
   } else if (!strcmp(clsid, "DiscordVideoSinkManager")) {
     ptr = new DiscordVideoSinkManager();
+  } else if (!strcmp(clsid, "DiscordFrameCaptureManager")) {
+    ptr = new ::discord::DiscordFrameCaptureManager();
   }
 
   if (!ptr) {

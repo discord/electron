@@ -73,4 +73,17 @@ void ServiceWorkerData::TakeHeapSnapshot(mojo::ScopedHandle file,
   std::move(callback).Run(false);
 }
 
+void ServiceWorkerData::BindFrameCapture(
+    const std::string& capture_id,
+    mojom::FrameCaptureParamsPtr params,
+    mojo::PendingReceiver<mojom::FrameCaptureSession> session,
+    mojo::PendingRemote<mojom::FrameCaptureHost> host) {}
+
+void ServiceWorkerData::EnsureChildFrameCaptureTarget(
+    const blink::LocalFrameToken& child,
+    mojo::PendingReceiver<mojom::FrameCaptureTargetLease> lease,
+    EnsureChildFrameCaptureTargetCallback callback) {
+  std::move(callback).Run(std::nullopt);
+}
+
 }  // namespace electron

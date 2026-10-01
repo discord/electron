@@ -6,6 +6,8 @@
 #define ELECTRON_SHELL_RENDERER_ELECTRON_API_SERVICE_IMPL_H_
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/memory/weak_ptr.h"
 #include "content/public/renderer/render_frame.h"
@@ -15,7 +17,9 @@
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "shell/common/api/api.mojom.h"
+#include "third_party/blink/public/web/web_element.h"
 
 namespace electron {
 
@@ -24,6 +28,7 @@ class RendererClientBase;
 class ElectronApiServiceImpl
     : public mojom::ElectronRenderer,
       public mojom::ElectronFrameStartup,
+      public mojom::FrameCaptureTargetLease,
       public content::RenderFrameObserver,
       public content::RenderFrameObserverTracker<ElectronApiServiceImpl> {
  public:
@@ -47,6 +52,15 @@ class ElectronApiServiceImpl
                           blink::TransferableMessage message) override;
   void TakeHeapSnapshot(mojo::ScopedHandle file,
                         TakeHeapSnapshotCallback callback) override;
+  void BindFrameCapture(
+      const std::string& capture_id,
+      mojom::FrameCaptureParamsPtr params,
+      mojo::PendingReceiver<mojom::FrameCaptureSession> session,
+      mojo::PendingRemote<mojom::FrameCaptureHost> host) override;
+  void EnsureChildFrameCaptureTarget(
+      const blink::LocalFrameToken& child,
+      mojo::PendingReceiver<mojom::FrameCaptureTargetLease> lease,
+      EnsureChildFrameCaptureTargetCallback callback) override;
   void ProcessPendingMessages();
 
   // mojom::ElectronFrameStartup
@@ -81,6 +95,7 @@ class ElectronApiServiceImpl
   void OnDestruct() override;
 
   void OnConnectionError();
+  void OnCaptureTargetLeaseClosed();
 
   // Whether the DOM document element has been created.
   bool document_created_ = false;
@@ -94,6 +109,12 @@ class ElectronApiServiceImpl
   // The most recent RendererStartupData pushed by the browser, consumed by the
   // sandboxed renderer client at DidCreateScriptContext time.
   mojom::RendererStartupDataPtr startup_data_;
+
+  // Keyed by the child frame's owner element, which outlives the child's
+  // local frame if it moves to another process.
+  mojo::ReceiverSet<mojom::FrameCaptureTargetLease, blink::WebElement>
+      capture_target_leases_;
+  std::vector<std::pair<blink::WebElement, size_t>> capture_target_owners_;
 
   raw_ptr<RendererClientBase> renderer_client_;
   base::WeakPtrFactory<ElectronApiServiceImpl> weak_factory_{this};

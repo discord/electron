@@ -23,12 +23,15 @@
 #include "gin/persistent.h"
 #include "printing/buildflags/buildflags.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
+#include "shell/browser/api/electron_api_frame_capture.h"
 #include "shell/browser/api/message_port.h"
 #include "shell/browser/browser.h"
+#include "shell/browser/capture/frame_still.h"
 #include "shell/browser/javascript_environment.h"
 #include "shell/common/api/api.mojom.h"
 #include "shell/common/gin_converters/blink_converter.h"
 #include "shell/common/gin_converters/frame_converter.h"
+#include "shell/common/gin_converters/gfx_converter.h"
 #include "shell/common/gin_converters/gurl_converter.h"
 #include "shell/common/gin_converters/serialized_value_converter.h"
 #include "shell/common/gin_converters/std_converter.h"
@@ -40,6 +43,7 @@
 #include "shell/common/gin_helper/promise.h"
 #include "shell/common/gin_helper/wrappable_pointer_tags.h"
 #include "shell/common/node_includes.h"
+#include "shell/common/node_util.h"
 #include "shell/common/v8_util.h"
 
 #if BUILDFLAG(ENABLE_PRINTING)
@@ -355,6 +359,129 @@ bool WebFrameMain::Reload() {
   if (!CheckRenderFrame())
     return false;
   return render_frame_host()->Reload();
+}
+
+v8::Local<v8::Value> WebFrameMain::CaptureStream(gin::Arguments* args) {
+  v8::Isolate* isolate = args->isolate();
+  gin_helper::ErrorThrower thrower(isolate);
+  if (!CheckRenderFrame())
+    return v8::Undefined(isolate);
+
+  gin_helper::Dictionary options;
+  if (!args->GetNext(&options)) {
+    thrower.ThrowTypeError("Expected an options object");
+    return v8::Undefined(isolate);
+  }
+
+  content::RenderFrameHost* consumer = nullptr;
+  if (!options.Get("consumerFrame", &consumer) || !consumer ||
+      !consumer->IsRenderFrameLive()) {
+    thrower.ThrowTypeError("'consumerFrame' must be a live WebFrameMain");
+    return v8::Undefined(isolate);
+  }
+  if (consumer == render_frame_host()) {
+    thrower.ThrowError("A frame cannot consume its own capture");
+    return v8::Undefined(isolate);
+  }
+
+  FrameCapture::Options capture_options;
+  options.Get("captureId", &capture_options.capture_id);
+  options.Get("audio", &capture_options.audio);
+  int max_frame_rate = 0;
+  if (options.Get("maxFrameRate", &max_frame_rate)) {
+    if (max_frame_rate <= 0) {
+      thrower.ThrowRangeError("'maxFrameRate' must be positive");
+      return v8::Undefined(isolate);
+    }
+    capture_options.max_frame_rate = max_frame_rate;
+  }
+  options.Get("maxSize", &capture_options.max_size);
+
+  std::string pixel_format;
+  if (options.Get("pixelFormat", &pixel_format)) {
+    if (pixel_format == "bgra") {
+      capture_options.pixel_format = media::PIXEL_FORMAT_ARGB;
+    } else if (pixel_format == "rgba") {
+      capture_options.pixel_format = media::PIXEL_FORMAT_ABGR;
+    } else if (pixel_format == "rgbaf16") {
+      capture_options.pixel_format = media::PIXEL_FORMAT_RGBAF16;
+    } else if (pixel_format == "nv12") {
+      capture_options.pixel_format = media::PIXEL_FORMAT_NV12;
+    } else {
+      thrower.ThrowTypeError("Unsupported 'pixelFormat'");
+      return v8::Undefined(isolate);
+    }
+  }
+
+  return FrameCapture::Create(isolate, render_frame_host(), consumer,
+                              capture_options)
+      .ToV8();
+}
+
+v8::Local<v8::Promise> WebFrameMain::CaptureImage(gin::Arguments* args) {
+  v8::Isolate* isolate = args->isolate();
+  gin_helper::Promise<v8::Local<v8::Value>> promise(isolate);
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  if (!HasRenderFrame()) {
+    promise.RejectWithErrorMessage("frame-gone");
+    return handle;
+  }
+
+  electron::FrameStillOptions still;
+  gin_helper::Dictionary options;
+  if (args->GetNext(&options)) {
+    options.Get("rect", &still.rect);
+    options.Get("viewportSize", &still.viewport_size);
+    options.Get("outputSize", &still.output_size);
+    std::string format;
+    if (options.Get("format", &format)) {
+      if (format == "webp") {
+        still.format = electron::FrameStillFormat::kWebp;
+      } else if (format == "jpeg") {
+        still.format = electron::FrameStillFormat::kJpeg;
+      } else if (format == "png") {
+        still.format = electron::FrameStillFormat::kPng;
+      } else {
+        promise.RejectWithErrorMessage("Unsupported 'format'");
+        return handle;
+      }
+    }
+    options.Get("quality", &still.quality);
+    double timeout_ms = 0;
+    if (options.Get("timeoutMs", &timeout_ms) && timeout_ms > 0) {
+      still.timeout = base::Milliseconds(timeout_ms);
+    }
+  }
+
+  electron::CaptureFrameStill(
+      render_frame_host(), still,
+      base::BindOnce(
+          [](gin_helper::Promise<v8::Local<v8::Value>> promise,
+             base::expected<electron::FrameStillResult, std::string> result) {
+            if (!result.has_value()) {
+              promise.RejectWithErrorMessage(result.error());
+              return;
+            }
+            v8::Isolate* isolate = promise.isolate();
+            v8::HandleScope handle_scope(isolate);
+            v8::Context::Scope context_scope(promise.GetContext());
+            v8::Local<v8::Object> buffer;
+            if (!electron::Buffer::Copy(isolate, base::span(result->data))
+                     .ToLocal(&buffer)) {
+              promise.RejectWithErrorMessage("encode-failed");
+              return;
+            }
+            auto dict = gin_helper::Dictionary::CreateEmpty(isolate);
+            dict.Set("data", buffer);
+            dict.Set("mimeType", result->mime_type);
+            dict.Set("width", result->size.width());
+            dict.Set("height", result->size.height());
+            dict.Set("area", result->area);
+            promise.Resolve(dict.GetHandle());
+          },
+          std::move(promise)));
+  return handle;
 }
 
 bool WebFrameMain::IsDestroyed() const {
@@ -718,6 +845,8 @@ void WebFrameMain::FillObjectTemplate(v8::Isolate* isolate,
       .SetMethod("copyVideoFrameAt", &WebFrameMain::CopyVideoFrameAt)
       .SetMethod("saveVideoFrameAs", &WebFrameMain::SaveVideoFrameAs)
       .SetMethod("reload", &WebFrameMain::Reload)
+      .SetMethod("captureStream", &WebFrameMain::CaptureStream)
+      .SetMethod("captureImage", &WebFrameMain::CaptureImage)
       .SetMethod("isDestroyed", &WebFrameMain::IsDestroyed)
       .SetMethod("_send", &WebFrameMain::Send)
       .SetMethod("_postMessage", &WebFrameMain::PostMessage)

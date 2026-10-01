@@ -58,6 +58,15 @@ class ServiceWorkerData : public mojom::ElectronRenderer {
                           blink::TransferableMessage message) override;
   void TakeHeapSnapshot(mojo::ScopedHandle file,
                         TakeHeapSnapshotCallback callback) override;
+  void BindFrameCapture(
+      const std::string& capture_id,
+      mojom::FrameCaptureParamsPtr params,
+      mojo::PendingReceiver<mojom::FrameCaptureSession> session,
+      mojo::PendingRemote<mojom::FrameCaptureHost> host) override;
+  void EnsureChildFrameCaptureTarget(
+      const blink::LocalFrameToken& child,
+      mojo::PendingReceiver<mojom::FrameCaptureTargetLease> lease,
+      EnsureChildFrameCaptureTargetCallback callback) override;
 
  private:
   void OnElectronRendererRequest(

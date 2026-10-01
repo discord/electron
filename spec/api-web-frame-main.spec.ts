@@ -307,6 +307,131 @@ describe('webFrameMain module', () => {
     });
   });
 
+  describe('WebFrame.captureStream', () => {
+    let server: Server;
+    before(async () => {
+      server = await createServer();
+    });
+    after(() => {
+      server.server.close();
+    });
+
+    const loadCrossOriginFrame = async () => {
+      const w = new BrowserWindow({ show: false });
+      await w.loadURL(`${server.url}?frameSrc=${encodeURIComponent(server.crossOriginUrl)}`);
+      const subframe = w.webContents.mainFrame.frames[0];
+      return { w, subframe };
+    };
+
+    it('requires a consumer frame', async () => {
+      const { subframe } = await loadCrossOriginFrame();
+      expect(() => (subframe as any).captureStream({})).to.throw(/consumerFrame/);
+    });
+
+    it('rejects capturing into the same frame', async () => {
+      const { subframe } = await loadCrossOriginFrame();
+      expect(() => subframe.captureStream({ consumerFrame: subframe })).to.throw();
+    });
+
+    it('rejects unknown pixel formats', async () => {
+      const { w, subframe } = await loadCrossOriginFrame();
+      expect(() => subframe.captureStream({
+        consumerFrame: w.webContents.mainFrame,
+        pixelFormat: 'yuv' as any
+      })).to.throw(/pixelFormat/);
+    });
+
+    it('starts on an out-of-process iframe and stops', async () => {
+      const { w, subframe } = await loadCrossOriginFrame();
+      const capture = subframe.captureStream({
+        consumerFrame: w.webContents.mainFrame,
+        captureId: 'spec-capture'
+      });
+      expect(capture.captureId).to.equal('spec-capture');
+      expect(capture.capturing).to.be.true();
+
+      const [, details] = await once(capture, 'started');
+      expect(details.captureId).to.equal('spec-capture');
+      expect(details.targetKind).to.equal('oopif');
+
+      const stopped = once(capture, 'stopped');
+      capture.stop();
+      const [, reason] = await stopped;
+      expect(reason).to.equal('stopped');
+      expect(capture.capturing).to.be.false();
+    });
+
+    it('stops when the captured frame is removed', async () => {
+      const { w, subframe } = await loadCrossOriginFrame();
+      const capture = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      await once(capture, 'started');
+
+      const stopped = once(capture, 'stopped');
+      await w.webContents.executeJavaScript('document.querySelector("iframe").remove()');
+      const [, reason] = await stopped;
+      expect(reason).to.equal('frame-destroyed');
+    });
+
+    it('delivers frames to the consumer renderer', async () => {
+      const { w, subframe } = await loadCrossOriginFrame();
+      const capture = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      // Only the consumer renderer sees frames; it reports their size back.
+      const [, size] = await once(capture, 'resized');
+      expect(size.width).to.be.greaterThan(0);
+      expect(size.height).to.be.greaterThan(0);
+      capture.stop();
+    });
+
+    const loadSameOriginFrame = async (webPreferences: Electron.WebPreferences = {}) => {
+      const w = new BrowserWindow({ show: false, webPreferences });
+      await w.loadURL(`${server.url}?frameSrc=${encodeURIComponent(server.url)}`);
+      const subframe = w.webContents.mainFrame.frames[0];
+      return { w, subframe };
+    };
+
+    it('captures a same-process iframe as a subtree', async () => {
+      const { w, subframe } = await loadSameOriginFrame();
+      const capture = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      const [, details] = await once(capture, 'started');
+      expect(details.targetKind).to.equal('subtree');
+      const [, size] = await once(capture, 'resized');
+      expect(size.width).to.be.greaterThan(0);
+      capture.stop();
+    });
+
+    it('captures a same-process iframe with ElementCapture disabled', async () => {
+      const { w, subframe } = await loadSameOriginFrame({ disableBlinkFeatures: 'ElementCapture' });
+      const capture = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      const [, details] = await once(capture, 'started');
+      expect(details.targetKind).to.equal('subtree');
+      const [, size] = await once(capture, 'resized');
+      expect(size.width).to.be.greaterThan(0);
+      capture.stop();
+    });
+
+    it('isolates a same-process iframe only while capturing it', async () => {
+      const { w, subframe } = await loadSameOriginFrame();
+      const isolation = () =>
+        w.webContents.executeJavaScript('getComputedStyle(document.querySelector("iframe")).isolation');
+      expect(await isolation()).to.equal('auto');
+
+      const first = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      const second = subframe.captureStream({ consumerFrame: w.webContents.mainFrame });
+      await once(first, 'resized');
+      expect(await isolation()).to.equal('isolate');
+
+      const firstStopped = once(first, 'stopped');
+      first.stop();
+      await firstStopped;
+      expect(await isolation()).to.equal('isolate');
+
+      const secondStopped = once(second, 'stopped');
+      second.stop();
+      await secondStopped;
+      await waitUntil(async () => (await isolation()) === 'auto');
+    });
+  });
+
   describe('WebFrame.send', () => {
     it('works', async () => {
       const w = new BrowserWindow({

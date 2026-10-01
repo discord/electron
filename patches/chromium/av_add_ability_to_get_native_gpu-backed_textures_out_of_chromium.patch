@@ -1,0 +1,944 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Sean Stanek <sean.stanek@discordapp.com>
+Date: Wed, 30 Sep 2026 16:53:24 -0700
+Subject: [av] add ability to get native gpu-backed textures out of chromium
+
+
+diff --git a/content/browser/media/audio_output_stream_broker.cc b/content/browser/media/audio_output_stream_broker.cc
+index f5c460377e442bd13f421c36c4edee3c20763a29..2725635183c082328aa0e3907484c867cef9fca8 100644
+--- a/content/browser/media/audio_output_stream_broker.cc
++++ b/content/browser/media/audio_output_stream_broker.cc
+@@ -77,6 +77,7 @@ AudioOutputStreamBroker::AudioOutputStreamBroker(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     const base::UnguessableToken& group_id,
++    std::vector<base::UnguessableToken> source_frame_tokens,
+     DeleterCallback deleter,
+     mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient> client)
+     : AudioStreamBroker(render_process_id, render_frame_id),
+@@ -84,6 +85,7 @@ AudioOutputStreamBroker::AudioOutputStreamBroker(
+       output_device_id_(output_device_id),
+       params_(params),
+       group_id_(group_id),
++      source_frame_tokens_(std::move(source_frame_tokens)),
+       deleter_(std::move(deleter)),
+       client_(std::move(client)),
+       observer_(render_process_id, render_frame_id, stream_id),
+@@ -176,7 +178,7 @@ void AudioOutputStreamBroker::CreateStream(
+         MediaInternals::GetInstance()->CreateMojoAudioLog(
+             media::AudioLogFactory::AudioComponent::kAudioOuputController,
+             log_component_id, render_process_id(), render_frame_id()),
+-        output_device_id_, params_, group_id_,
++        output_device_id_, params_, group_id_, source_frame_tokens_,
+         base::BindOnce(&AudioOutputStreamBroker::StreamCreated,
+                        weak_ptr_factory_.GetWeakPtr(), std::move(stream)));
+   } else {
+@@ -185,7 +187,7 @@ void AudioOutputStreamBroker::CreateStream(
+         MediaInternals::GetInstance()->CreateMojoAudioLog(
+             media::AudioLogFactory::AudioComponent::kAudioOuputController,
+             log_component_id, render_process_id(), render_frame_id()),
+-        output_device_id_, params_, group_id_,
++        output_device_id_, params_, group_id_, source_frame_tokens_,
+         base::BindOnce(&AudioOutputStreamBroker::StreamCreated,
+                        weak_ptr_factory_.GetWeakPtr(), std::move(stream)));
+   }
+diff --git a/content/browser/media/audio_output_stream_broker.h b/content/browser/media/audio_output_stream_broker.h
+index d9d9d12d153dcd9bf6e73b5dde6480ddabd2f9e1..da11c75014d79631b670ecd4137c792954c38ab7 100644
+--- a/content/browser/media/audio_output_stream_broker.h
++++ b/content/browser/media/audio_output_stream_broker.h
+@@ -6,6 +6,7 @@
+ #define CONTENT_BROWSER_MEDIA_AUDIO_OUTPUT_STREAM_BROKER_H_
+ 
+ #include <string>
++#include <vector>
+ 
+ #include "base/functional/callback.h"
+ #include "base/memory/weak_ptr.h"
+@@ -40,6 +41,7 @@ class CONTENT_EXPORT AudioOutputStreamBroker final
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      std::vector<base::UnguessableToken> source_frame_tokens,
+       DeleterCallback deleter,
+       mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient>
+           client);
+@@ -82,6 +84,7 @@ class CONTENT_EXPORT AudioOutputStreamBroker final
+   std::string output_device_id_;
+   const media::AudioParameters params_;
+   const base::UnguessableToken group_id_;
++  const std::vector<base::UnguessableToken> source_frame_tokens_;
+ 
+   // Set while CreateStream() has been called, but not StreamCreated().
+   base::TimeTicks stream_creation_start_time_;
+diff --git a/content/browser/media/audio_stream_broker_impl.cc b/content/browser/media/audio_stream_broker_impl.cc
+index 306239fb1f902956fc26d21e9c4f8615c9ea0b37..03811896a901c40e779df4bf349a4dc0a8da96c8 100644
+--- a/content/browser/media/audio_stream_broker_impl.cc
++++ b/content/browser/media/audio_stream_broker_impl.cc
+@@ -61,12 +61,13 @@ AudioStreamBrokerFactoryImpl::CreateAudioOutputStreamBroker(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     const base::UnguessableToken& group_id,
++    std::vector<base::UnguessableToken> source_frame_tokens,
+     AudioStreamBroker::DeleterCallback deleter,
+     mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient> client) {
+   return std::make_unique<AudioOutputStreamBroker>(
+       render_process_id, render_frame_id, main_frame_token, stream_id,
+-      output_device_id, params, group_id, std::move(deleter),
+-      std::move(client));
++      output_device_id, params, group_id, std::move(source_frame_tokens),
++      std::move(deleter), std::move(client));
+ }
+ 
+ // static
+diff --git a/content/browser/media/audio_stream_broker_impl.h b/content/browser/media/audio_stream_broker_impl.h
+index a5eb25c65132c67e6fe89d94fc175063fe309270..1c6268cc2121e591e4abc9b1b03896486f544e52 100644
+--- a/content/browser/media/audio_stream_broker_impl.h
++++ b/content/browser/media/audio_stream_broker_impl.h
+@@ -46,6 +46,7 @@ class AudioStreamBrokerFactoryImpl final : public AudioStreamBrokerFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      std::vector<base::UnguessableToken> source_frame_tokens,
+       AudioStreamBroker::DeleterCallback deleter,
+       mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient> client)
+       final;
+diff --git a/content/browser/media/forwarding_audio_stream_factory.cc b/content/browser/media/forwarding_audio_stream_factory.cc
+index dd812d386a0b17d8d3e402bf2832c695e17625a4..143049c9af9db90aa00513985c38fd013b37c9d7 100644
+--- a/content/browser/media/forwarding_audio_stream_factory.cc
++++ b/content/browser/media/forwarding_audio_stream_factory.cc
+@@ -112,6 +112,7 @@ void ForwardingAudioStreamFactory::Core::CreateOutputStream(
+     int render_process_id,
+     int render_frame_id,
+     const GlobalRenderFrameHostToken& main_frame_token,
++    const std::vector<base::UnguessableToken>& source_frame_tokens,
+     const std::string& device_id,
+     const media::AudioParameters& params,
+     mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient> client) {
+@@ -122,6 +123,7 @@ void ForwardingAudioStreamFactory::Core::CreateOutputStream(
+       .insert(broker_factory_->CreateAudioOutputStreamBroker(
+           render_process_id, render_frame_id, main_frame_token,
+           ++stream_id_counter_, device_id, params, group_id_,
++          source_frame_tokens,
+           base::BindOnce(&ForwardingAudioStreamFactory::Core::RemoveOutput,
+                          base::Unretained(this)),
+           std::move(client)))
+diff --git a/content/browser/media/forwarding_audio_stream_factory.h b/content/browser/media/forwarding_audio_stream_factory.h
+index 0a12aaa7eee7253475ab8bf77e5b1cbc0415e1a7..756dcf296e21574db3f68b84700ee7ed439ff8c0 100644
+--- a/content/browser/media/forwarding_audio_stream_factory.h
++++ b/content/browser/media/forwarding_audio_stream_factory.h
+@@ -89,6 +89,7 @@ class CONTENT_EXPORT ForwardingAudioStreamFactory final
+         int render_process_id,
+         int render_frame_id,
+         const GlobalRenderFrameHostToken& main_frame_token,
++        const std::vector<base::UnguessableToken>& source_frame_tokens,
+         const std::string& device_id,
+         const media::AudioParameters& params,
+         mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient>
+diff --git a/content/browser/renderer_host/media/render_frame_audio_output_stream_factory.cc b/content/browser/renderer_host/media/render_frame_audio_output_stream_factory.cc
+index 96b8bcd7cb6949aad27d31105481b6f38893f88d..29aee314ae188019818126b68d111c68102868c8 100644
+--- a/content/browser/renderer_host/media/render_frame_audio_output_stream_factory.cc
++++ b/content/browser/renderer_host/media/render_frame_audio_output_stream_factory.cc
+@@ -11,6 +11,7 @@
+ #include <optional>
+ #include <string>
+ #include <utility>
++#include <vector>
+ 
+ #include "base/check_op.h"
+ #include "base/containers/flat_set.h"
+@@ -30,6 +31,7 @@
+ #include "content/browser/renderer_host/media/preferred_audio_output_device_manager.h"
+ #include "content/public/browser/browser_task_traits.h"
+ #include "content/public/browser/browser_thread.h"
++#include "content/public/browser/render_frame_host.h"
+ #include "content/public/browser/render_process_host.h"
+ #include "media/base/output_device_info.h"
+ #include "media/mojo/mojom/audio_output_stream.mojom.h"
+@@ -56,6 +58,16 @@ const char* OutputDeviceStatusToString(media::OutputDeviceStatus status) {
+   }
+ }
+ 
++std::vector<base::UnguessableToken> GetSourceFrameTokens(
++    RenderFrameHost* frame) {
++  std::vector<base::UnguessableToken> tokens;
++  for (RenderFrameHost* rfh = frame; rfh;
++       rfh = rfh->GetParentOrOuterDocument()) {
++    tokens.push_back(rfh->GetDevToolsFrameToken());
++  }
++  return tokens;
++}
++
+ }  // namespace
+ 
+ class RenderFrameAudioOutputStreamFactory::Core final
+@@ -121,8 +133,8 @@ class RenderFrameAudioOutputStreamFactory::Core final
+         factory->CreateOutputStream(
+             owner_->process_id_,
+             owner_->global_render_frame_host_id_.frame_routing_id,
+-            owner_->main_frame_token_, device_id_, params,
+-            std::move(provider_client));
++            owner_->main_frame_token_, owner_->source_frame_tokens_,
++            device_id_, params, std::move(provider_client));
+       }
+ 
+       // Since the stream creation has been propagated, |this| is no longer
+@@ -172,6 +184,9 @@ class RenderFrameAudioOutputStreamFactory::Core final
+   const int process_id_;
+   const GlobalRenderFrameHostId global_render_frame_host_id_;
+   const GlobalRenderFrameHostToken main_frame_token_;
++  // DevTools frame tokens of this frame and its ancestors, which stay stable
++  // for the lifetime of the frame tree nodes.
++  const std::vector<base::UnguessableToken> source_frame_tokens_;
+   AudioOutputAuthorizationHandler authorization_handler_;
+ 
+   mojo::Receiver<blink::mojom::RendererAudioOutputStreamFactory> receiver_{
+@@ -242,6 +257,7 @@ RenderFrameAudioOutputStreamFactory::Core::Core(
+     : process_id_(frame->GetProcess()->GetDeprecatedID()),
+       global_render_frame_host_id_(frame->GetGlobalId()),
+       main_frame_token_(frame->GetMainFrame()->GetGlobalFrameToken()),
++      source_frame_tokens_(GetSourceFrameTokens(frame)),
+       authorization_handler_(audio_system, media_stream_manager, process_id_) {
+   CHECK_CURRENTLY_ON(BrowserThread::UI, base::NotFatalUntil::M152);
+ 
+diff --git a/content/public/browser/audio_stream_broker.h b/content/public/browser/audio_stream_broker.h
+index 1087fe4832d59ecfcd8474db992923b820bac468..166b91bef4e3c73d148e8a82a286b8088b9af29f 100644
+--- a/content/public/browser/audio_stream_broker.h
++++ b/content/public/browser/audio_stream_broker.h
+@@ -8,8 +8,10 @@
+ #include <cstdint>
+ #include <memory>
+ #include <string>
++#include <vector>
+ 
+ #include "base/functional/callback.h"
++#include "base/unguessable_token.h"
+ #include "content/common/content_export.h"
+ #include "content/public/browser/global_routing_id.h"
+ #include "media/mojo/mojom/audio_output_stream.mojom.h"
+@@ -123,6 +125,7 @@ class CONTENT_EXPORT AudioStreamBrokerFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      std::vector<base::UnguessableToken> source_frame_tokens,
+       AudioStreamBroker::DeleterCallback deleter,
+       mojo::PendingRemote<media::mojom::AudioOutputStreamProviderClient>
+           client) = 0;
+diff --git a/media/mojo/mojom/audio_stream_factory.mojom b/media/mojo/mojom/audio_stream_factory.mojom
+index e240fbade78675eb942753479afdbd572a3f0c51..04de46ca1c4277f14a8184a0f4461afd3451904d 100644
+--- a/media/mojo/mojom/audio_stream_factory.mojom
++++ b/media/mojo/mojom/audio_stream_factory.mojom
+@@ -68,12 +68,15 @@ interface AudioStreamFactory {
+   // either the |unique_id| field from an AudioDeviceDescription obtained from
+   // the audio.mojom.SystemInfo interface, or "default". The stream |group_id|
+   // is used for muting streams or capturing them for loopback.
++  // |source_frame_tokens| lists the creating frame followed by its ancestors
++  // and is used by CreateFrameLoopbackStream(); it may be empty.
+   CreateOutputStream(
+     pending_receiver<media.mojom.AudioOutputStream> stream,
+     pending_associated_remote<media.mojom.AudioOutputStreamObserver>? observer,
+     pending_remote<media.mojom.AudioLog>? log,
+     string device_id, media.mojom.AudioParameters params,
+-    mojo_base.mojom.UnguessableToken group_id)
++    mojo_base.mojom.UnguessableToken group_id,
++    array<mojo_base.mojom.UnguessableToken> source_frame_tokens)
+     => (media.mojom.ReadWriteAudioDataPipe? data_pipe);
+ 
+   // Same as CreateOutputStream(), but the output device of the resulting
+@@ -84,7 +87,8 @@ interface AudioStreamFactory {
+     pending_associated_remote<media.mojom.AudioOutputStreamObserver>? observer,
+     pending_remote<media.mojom.AudioLog>? log,
+     string device_id, media.mojom.AudioParameters params,
+-    mojo_base.mojom.UnguessableToken group_id)
++    mojo_base.mojom.UnguessableToken group_id,
++    array<mojo_base.mojom.UnguessableToken> source_frame_tokens)
+     => (media.mojom.ReadWriteAudioDataPipe? data_pipe);
+ 
+   // Binds the request to the LocalMuter associated with the given |group_id|.
+@@ -114,4 +118,16 @@ interface AudioStreamFactory {
+       uint32 shared_memory_count,
+       mojo_base.mojom.UnguessableToken group_id)
+     => (media.mojom.ReadWriteAudioDataPipe? data_pipe);
++
++  // Same as CreateLoopbackStream(), but loops back the output streams whose
++  // |source_frame_tokens| contain |frame_token|, i.e. those created by that
++  // frame or any of its descendants.
++  CreateFrameLoopbackStream(
++      pending_receiver<media.mojom.AudioInputStream> receiver,
++      pending_remote<media.mojom.AudioInputStreamClient> client,
++      pending_remote<media.mojom.AudioInputStreamObserver> observer,
++      media.mojom.AudioParameters params,
++      uint32 shared_memory_count,
++      mojo_base.mojom.UnguessableToken frame_token)
++    => (media.mojom.ReadWriteAudioDataPipe? data_pipe);
+ };
+diff --git a/services/audio/loopback_coordinator.cc b/services/audio/loopback_coordinator.cc
+index b4df149e4f5ae9ab67e256b45d2b31c7502cba6d..dedf30f9ee50f7e43f5b63384b09c7467bc614fa 100644
+--- a/services/audio/loopback_coordinator.cc
++++ b/services/audio/loopback_coordinator.cc
+@@ -4,6 +4,8 @@
+ 
+ #include "services/audio/loopback_coordinator.h"
+ 
++#include <algorithm>
++
+ #include "base/check.h"
+ #include "base/functional/bind.h"
+ #include "base/logging.h"
+@@ -44,8 +46,36 @@ class ExcludingGroupIdMatcher : public LoopbackGroupObserver::Matcher {
+   const base::UnguessableToken group_id_to_exclude_;
+ };
+ 
++// Matcher implementation that matches streams created by a frame subtree.
++class MatchingFrameMatcher : public LoopbackGroupObserver::Matcher {
++ public:
++  explicit MatchingFrameMatcher(const base::UnguessableToken& frame_token)
++      : frame_token_(frame_token) {}
++  ~MatchingFrameMatcher() override = default;
++
++  bool Match(const LoopbackCoordinator::Member& member) const override {
++    return std::ranges::find(member.source_frame_tokens, frame_token_) !=
++           member.source_frame_tokens.end();
++  }
++
++ private:
++  const base::UnguessableToken frame_token_;
++};
++
+ }  // namespace
+ 
++LoopbackCoordinator::Member::Member(
++    base::UnguessableToken group_id,
++    std::vector<base::UnguessableToken> source_frame_tokens,
++    LoopbackSource* loopback_source)
++    : group_id(group_id),
++      source_frame_tokens(std::move(source_frame_tokens)),
++      loopback_source(loopback_source) {}
++
++LoopbackCoordinator::Member::Member(const Member&) = default;
++
++LoopbackCoordinator::Member::~Member() = default;
++
+ LoopbackCoordinator::LoopbackCoordinator() {
+   // The sequence checker is automatically bound to the sequence of creation.
+ }
+@@ -58,14 +88,16 @@ LoopbackCoordinator::~LoopbackCoordinator() {
+       << "LoopbackCoordinator destroyed with active members.";
+ }
+ 
+-void LoopbackCoordinator::AddMember(const base::UnguessableToken& group_id,
+-                                    LoopbackSource* loopback_source) {
++void LoopbackCoordinator::AddMember(
++    const base::UnguessableToken& group_id,
++    LoopbackSource* loopback_source,
++    std::vector<base::UnguessableToken> source_frame_tokens) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+   CHECK(loopback_source);
+ 
+   // Attempt to add the new member to the set.
+-  const auto [iterator, was_inserted] =
+-      members_.emplace(group_id, loopback_source);
++  const auto [iterator, was_inserted] = members_.emplace(
++      group_id, std::move(source_frame_tokens), loopback_source);
+   if (!was_inserted) {
+     // Already added;
+     return;
+@@ -134,6 +166,15 @@ LoopbackGroupObserver::CreateExcludingGroupObserver(
+       coordinator, std::make_unique<ExcludingGroupIdMatcher>(group_id));
+ }
+ 
++// static
++std::unique_ptr<LoopbackGroupObserver>
++LoopbackGroupObserver::CreateMatchingFrameObserver(
++    LoopbackCoordinator* coordinator,
++    const base::UnguessableToken& frame_token) {
++  return std::make_unique<LoopbackGroupObserver>(
++      coordinator, std::make_unique<MatchingFrameMatcher>(frame_token));
++}
++
+ LoopbackGroupObserver::LoopbackGroupObserver(LoopbackCoordinator* coordinator,
+                                              std::unique_ptr<Matcher> matcher)
+     : coordinator_(coordinator), matcher_(std::move(matcher)) {
+diff --git a/services/audio/loopback_coordinator.h b/services/audio/loopback_coordinator.h
+index 89ced9d4c3a111c3c99aedf7964b21be6faf0df6..9e63ecb49bd415f7cc4601f8ad0e983bd71c0925 100644
+--- a/services/audio/loopback_coordinator.h
++++ b/services/audio/loopback_coordinator.h
+@@ -24,8 +24,11 @@ class LoopbackCoordinator {
+  public:
+   struct Member {
+    public:
+-    Member(base::UnguessableToken group_id, LoopbackSource* loopback_source)
+-        : group_id(group_id), loopback_source(loopback_source) {}
++    Member(base::UnguessableToken group_id,
++           std::vector<base::UnguessableToken> source_frame_tokens,
++           LoopbackSource* loopback_source);
++    Member(const Member&);
++    ~Member();
+ 
+     bool operator<(const Member& other) const {
+       return loopback_source < other.loopback_source;
+@@ -42,6 +45,9 @@ class LoopbackCoordinator {
+     }
+ 
+     const base::UnguessableToken group_id;
++    // The frame that created the stream followed by its ancestors, used to
++    // loop back the audio of a single frame subtree. Empty when unknown.
++    const std::vector<base::UnguessableToken> source_frame_tokens;
+     const raw_ptr<LoopbackSource> loopback_source;
+   };
+ 
+@@ -69,7 +75,8 @@ class LoopbackCoordinator {
+ 
+   // Adds a member to the coordinator and notifies observers.
+   void AddMember(const base::UnguessableToken& group_id,
+-                 LoopbackSource* loopback_source);
++                 LoopbackSource* loopback_source,
++                 std::vector<base::UnguessableToken> source_frame_tokens = {});
+ 
+   // Notifies observers and removes a member from the coordinator.
+   void RemoveMember(LoopbackSource* loopback_source);
+@@ -127,6 +134,12 @@ class LoopbackGroupObserver : public LoopbackCoordinator::Observer {
+       LoopbackCoordinator* coordinator,
+       const base::UnguessableToken& group_id);
+ 
++  // Creates an observer that notifies its listener about sources created by
++  // the frame identified by |frame_token| or any of its descendants.
++  static std::unique_ptr<LoopbackGroupObserver> CreateMatchingFrameObserver(
++      LoopbackCoordinator* coordinator,
++      const base::UnguessableToken& frame_token);
++
+   LoopbackGroupObserver(LoopbackCoordinator* coordinator,
+                         std::unique_ptr<Matcher> matcher);
+   ~LoopbackGroupObserver() override;
+diff --git a/services/audio/loopback_stream.cc b/services/audio/loopback_stream.cc
+index 57c15f52216ff7eceb11e4378c03b0292455683c..aaf250dea768296a3b1972d161bf55aff56d13ea 100644
+--- a/services/audio/loopback_stream.cc
++++ b/services/audio/loopback_stream.cc
+@@ -37,14 +37,33 @@ LoopbackStream::LoopbackStream(
+     uint32_t shared_memory_count,
+     LoopbackCoordinator* coordinator,
+     const base::UnguessableToken& group_id)
++    : LoopbackStream(
++          std::move(created_callback),
++          std::move(binding_lost_callback),
++          std::move(loopback_task_runner),
++          std::move(receiver),
++          std::move(client),
++          std::move(observer),
++          params,
++          shared_memory_count,
++          LoopbackGroupObserver::CreateMatchingGroupObserver(coordinator,
++                                                             group_id)) {}
++
++LoopbackStream::LoopbackStream(
++    CreatedCallback created_callback,
++    BindingLostCallback binding_lost_callback,
++    scoped_refptr<base::SequencedTaskRunner> loopback_task_runner,
++    mojo::PendingReceiver<media::mojom::AudioInputStream> receiver,
++    mojo::PendingRemote<media::mojom::AudioInputStreamClient> client,
++    mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
++    const media::AudioParameters& params,
++    uint32_t shared_memory_count,
++    std::unique_ptr<LoopbackGroupObserver> group_observer)
+     : binding_lost_callback_(std::move(binding_lost_callback)),
+       receiver_(this, std::move(receiver)),
+       client_(std::move(client)),
+       observer_(std::move(observer)),
+-      loopback_signal_provider_(
+-          params,
+-          LoopbackGroupObserver::CreateMatchingGroupObserver(coordinator,
+-                                                             group_id)),
++      loopback_signal_provider_(params, std::move(group_observer)),
+       loopback_signal_forwarder_(
+           nullptr,
+           base::OnTaskRunnerDeleter(loopback_task_runner)) {
+diff --git a/services/audio/loopback_stream.h b/services/audio/loopback_stream.h
+index beeef2f06abc641bac7784733e2cbc3e7476f6ea..36a3110db74af39f9948872bfdaa6ac41e2627c1 100644
+--- a/services/audio/loopback_stream.h
++++ b/services/audio/loopback_stream.h
+@@ -72,6 +72,17 @@ class LoopbackStream final : public media::mojom::AudioInputStream {
+       LoopbackCoordinator* coordinator,
+       const base::UnguessableToken& group_id);
+ 
++  LoopbackStream(
++      CreatedCallback created_callback,
++      BindingLostCallback binding_lost_callback,
++      scoped_refptr<base::SequencedTaskRunner> loopback_task_runner,
++      mojo::PendingReceiver<media::mojom::AudioInputStream> receiver,
++      mojo::PendingRemote<media::mojom::AudioInputStreamClient> client,
++      mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
++      const media::AudioParameters& params,
++      uint32_t shared_memory_count,
++      std::unique_ptr<LoopbackGroupObserver> group_observer);
++
+   LoopbackStream(const LoopbackStream&) = delete;
+   LoopbackStream& operator=(const LoopbackStream&) = delete;
+ 
+diff --git a/services/audio/output_stream.cc b/services/audio/output_stream.cc
+index e294cc61680ca41652cde9b5ebaf660a38dad43a..52d10183bb4db37a1f34bbbdd09533e4eff871eb 100644
+--- a/services/audio/output_stream.cc
++++ b/services/audio/output_stream.cc
+@@ -174,7 +174,8 @@ OutputStream::OutputStream(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     LoopbackCoordinator* coordinator,
+-    const base::UnguessableToken& loopback_group_id)
++    const base::UnguessableToken& loopback_group_id,
++    std::vector<base::UnguessableToken> source_frame_tokens)
+     : id_(base::UnguessableToken::Create()),
+       delete_callback_(std::move(delete_callback)),
+       receiver_(this, std::move(stream_receiver)),
+@@ -195,6 +196,7 @@ OutputStream::OutputStream(
+                   &reader_,
+                   std::move(managed_device_output_stream_create_callback)),
+       loopback_group_id_(loopback_group_id),
++      source_frame_tokens_(std::move(source_frame_tokens)),
+       audibility_helper_(std::make_unique<AudibilityHelperImpl>()),
+       trace_track_(
+           perfetto::NamedTrack::FromPointer("audio::OutputStream", this)) {
+@@ -223,7 +225,8 @@ OutputStream::OutputStream(
+   if (log_)
+     log_->OnCreated(params, output_device_id);
+ 
+-  coordinator_->AddMember(loopback_group_id_, &controller_);
++  coordinator_->AddMember(loopback_group_id_, &controller_,
++                          source_frame_tokens_);
+   if (!reader_.IsValid() || !controller_.CreateStream()) {
+     // Either SyncReader initialization failed or the controller failed to
+     // create the stream. In the latter case, the controller will have called
+diff --git a/services/audio/output_stream.h b/services/audio/output_stream.h
+index 44df027b000e65936dd394616494ad08aa0c3b7b..7f3d660594b46cfc43d733ce13082c9580ba66db 100644
+--- a/services/audio/output_stream.h
++++ b/services/audio/output_stream.h
+@@ -8,6 +8,7 @@
+ #include <memory>
+ #include <string>
+ #include <string_view>
++#include <vector>
+ 
+ #include "base/functional/callback.h"
+ #include "base/memory/raw_ptr.h"
+@@ -67,7 +68,8 @@ class OutputStream final : public media::mojom::AudioOutputStream,
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       LoopbackCoordinator* coordinator,
+-      const base::UnguessableToken& loopback_group_id);
++      const base::UnguessableToken& loopback_group_id,
++      std::vector<base::UnguessableToken> source_frame_tokens = {});
+ 
+   OutputStream(const OutputStream&) = delete;
+   OutputStream& operator=(const OutputStream&) = delete;
+@@ -140,6 +142,7 @@ class OutputStream final : public media::mojom::AudioOutputStream,
+   OutputController controller_;
+   // A token indicating membership in a group of output controllers/streams.
+   const base::UnguessableToken loopback_group_id_;
++  std::vector<base::UnguessableToken> source_frame_tokens_;
+ 
+   // This flag ensures that we only send OnStreamStateChanged notifications
+   // and (de)register with the stream monitor when the state actually changes.
+diff --git a/services/audio/public/cpp/fake_stream_factory.h b/services/audio/public/cpp/fake_stream_factory.h
+index 6ac239329aacadd0ae4b2c12c43896ea297a132b..758212c8c49d564829842ee210e3b5f57c9f0203 100644
+--- a/services/audio/public/cpp/fake_stream_factory.h
++++ b/services/audio/public/cpp/fake_stream_factory.h
+@@ -7,6 +7,7 @@
+ 
+ #include <optional>
+ #include <string>
++#include <vector>
+ 
+ #include "base/run_loop.h"
+ #include "media/mojo/mojom/audio_input_stream.mojom.h"
+@@ -70,6 +71,7 @@ class FakeStreamFactory : public media::mojom::AudioStreamFactory {
+       const std::string& device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      const std::vector<base::UnguessableToken>& source_frame_tokens,
+       CreateOutputStreamCallback created_callback) override {}
+   void CreateSwitchableOutputStream(
+       mojo::PendingReceiver<media::mojom::AudioOutputStream> stream_receiver,
+@@ -81,6 +83,7 @@ class FakeStreamFactory : public media::mojom::AudioStreamFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      const std::vector<base::UnguessableToken>& source_frame_tokens,
+       CreateOutputStreamCallback created_callback) override {}
+   void BindMuter(
+       mojo::PendingAssociatedReceiver<media::mojom::LocalMuter> receiver,
+@@ -93,6 +96,14 @@ class FakeStreamFactory : public media::mojom::AudioStreamFactory {
+       uint32_t shared_memory_count,
+       const base::UnguessableToken& group_id,
+       CreateLoopbackStreamCallback created_callback) override {}
++  void CreateFrameLoopbackStream(
++      mojo::PendingReceiver<media::mojom::AudioInputStream> receiver,
++      mojo::PendingRemote<media::mojom::AudioInputStreamClient> client,
++      mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
++      const media::AudioParameters& params,
++      uint32_t shared_memory_count,
++      const base::UnguessableToken& frame_token,
++      CreateFrameLoopbackStreamCallback created_callback) override {}
+ 
+   mojo::Receiver<media::mojom::AudioStreamFactory> receiver_{this};
+ 
+diff --git a/services/audio/public/cpp/output_device.cc b/services/audio/public/cpp/output_device.cc
+index 8670782afe26c0b399867db78618ee12038fc928..32508a306718719330a58d42703a8c4927eb08be 100644
+--- a/services/audio/public/cpp/output_device.cc
++++ b/services/audio/public/cpp/output_device.cc
+@@ -31,6 +31,7 @@ OutputDevice::OutputDevice(
+   stream_factory_->CreateOutputStream(
+       stream_.BindNewPipeAndPassReceiver(), mojo::NullAssociatedRemote(),
+       mojo::NullRemote(), device_id, params, base::UnguessableToken::Create(),
++      /*source_frame_tokens=*/{},
+       base::BindOnce(&OutputDevice::StreamCreated, weak_factory_.GetWeakPtr()));
+   stream_.set_disconnect_handler(base::BindOnce(
+       &OutputDevice::OnConnectionError, weak_factory_.GetWeakPtr()));
+diff --git a/services/audio/stream_factory.cc b/services/audio/stream_factory.cc
+index 8754d85838dd8d4adac15f6e711c73fd14a5afc6..4dbb09267d9df889e016649e06c526d71f3ec4b6 100644
+--- a/services/audio/stream_factory.cc
++++ b/services/audio/stream_factory.cc
+@@ -167,6 +167,7 @@ void StreamFactory::CreateOutputStream(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     const base::UnguessableToken& group_id,
++    const std::vector<base::UnguessableToken>& source_frame_tokens,
+     CreateOutputStreamCallback created_callback) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(owning_sequence_);
+   TRACE_EVENT_INSTANT(
+@@ -177,7 +178,7 @@ void StreamFactory::CreateOutputStream(
+   CreateOutputStreamInternal(std::move(stream_receiver), mojo::NullReceiver(),
+                              std::move(observer), std::move(log),
+                              output_device_id, params, group_id,
+-                             std::move(created_callback));
++                             source_frame_tokens, std::move(created_callback));
+ }
+ 
+ void StreamFactory::CreateSwitchableOutputStream(
+@@ -190,6 +191,7 @@ void StreamFactory::CreateSwitchableOutputStream(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     const base::UnguessableToken& group_id,
++    const std::vector<base::UnguessableToken>& source_frame_tokens,
+     CreateOutputStreamCallback created_callback) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(owning_sequence_);
+   TRACE_EVENT_INSTANT(
+@@ -201,7 +203,7 @@ void StreamFactory::CreateSwitchableOutputStream(
+   CreateOutputStreamInternal(
+       std::move(stream_receiver), std::move(device_switch_receiver),
+       std::move(observer), std::move(log), output_device_id, params, group_id,
+-      std::move(created_callback));
++      source_frame_tokens, std::move(created_callback));
+ }
+ 
+ void StreamFactory::BindMuter(
+@@ -245,6 +247,45 @@ void StreamFactory::CreateLoopbackStream(
+       perfetto::NamedTrack::FromPointer("audio::StreamFactory", this),
+       "group id", group_id, "params", params.AsHumanReadableString());
+ 
++  auto stream = std::make_unique<LoopbackStream>(
++      std::move(created_callback),
++      base::BindOnce(&StreamFactory::DestroyLoopbackStream,
++                     base::Unretained(this)),
++      GetLoopbackTaskRunner(), std::move(receiver), std::move(client),
++      std::move(observer), params, shared_memory_count, &coordinator_,
++      group_id);
++  loopback_streams_.emplace_back(std::move(stream));
++}
++
++void StreamFactory::CreateFrameLoopbackStream(
++    mojo::PendingReceiver<media::mojom::AudioInputStream> receiver,
++    mojo::PendingRemote<media::mojom::AudioInputStreamClient> client,
++    mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
++    const media::AudioParameters& params,
++    uint32_t shared_memory_count,
++    const base::UnguessableToken& frame_token,
++    CreateFrameLoopbackStreamCallback created_callback) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(owning_sequence_);
++  TRACE_EVENT_INSTANT(
++      "audio", "CreateFrameLoopbackStream",
++      perfetto::NamedTrack::FromPointer("audio::StreamFactory", this),
++      "params", params.AsHumanReadableString());
++
++  auto stream = std::make_unique<LoopbackStream>(
++      std::move(created_callback),
++      base::BindOnce(&StreamFactory::DestroyLoopbackStream,
++                     base::Unretained(this)),
++      GetLoopbackTaskRunner(), std::move(receiver), std::move(client),
++      std::move(observer), params, shared_memory_count,
++      LoopbackGroupObserver::CreateMatchingFrameObserver(&coordinator_,
++                                                         frame_token));
++  loopback_streams_.emplace_back(std::move(stream));
++}
++
++scoped_refptr<base::SequencedTaskRunner>
++StreamFactory::GetLoopbackTaskRunner() {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(owning_sequence_);
++
+   // All LoopbackStreams share a single realtime worker thread. This is because
+   // the execution timing of scheduled tasks must be precise, and top priority
+   // should be given to the smooth continuous flow of audio while in low-CPU
+@@ -271,15 +312,7 @@ void StreamFactory::CreateLoopbackStream(
+       TRACE_EVENT_END("audio", "success", false);
+     }
+   }
+-
+-  auto stream = std::make_unique<LoopbackStream>(
+-      std::move(created_callback),
+-      base::BindOnce(&StreamFactory::DestroyLoopbackStream,
+-                     base::Unretained(this)),
+-      std::move(task_runner), std::move(receiver), std::move(client),
+-      std::move(observer), params, shared_memory_count, &coordinator_,
+-      group_id);
+-  loopback_streams_.emplace_back(std::move(stream));
++  return task_runner;
+ }
+ 
+ void StreamFactory::DestroyInputStream(InputStream* stream) {
+@@ -350,6 +383,7 @@ void StreamFactory::CreateOutputStreamInternal(
+     const std::string& output_device_id,
+     const media::AudioParameters& params,
+     const base::UnguessableToken& group_id,
++    const std::vector<base::UnguessableToken>& source_frame_tokens,
+     CreateOutputStreamCallback created_callback) {
+   DCHECK_CALLED_ON_VALID_SEQUENCE(owning_sequence_);
+   TRACE_EVENT_INSTANT(
+@@ -400,7 +434,8 @@ void StreamFactory::CreateOutputStreamInternal(
+       std::move(managed_device_output_stream_create_callback),
+       std::move(stream_receiver), std::move(device_switch_receiver),
+       std::move(observer), std::move(log), audio_manager_,
+-      device_id_or_group_id, params, &coordinator_, group_id));
++      device_id_or_group_id, params, &coordinator_, group_id,
++      source_frame_tokens));
+ }
+ 
+ #if BUILDFLAG(CHROME_WIDE_ECHO_CANCELLATION)
+diff --git a/services/audio/stream_factory.h b/services/audio/stream_factory.h
+index 397b55f9baf8bf45447860616a48bf00e4866471..8d28d26b402656bc02cccc92d8565fc4b13c411a 100644
+--- a/services/audio/stream_factory.h
++++ b/services/audio/stream_factory.h
+@@ -95,6 +95,7 @@ class StreamFactory final : public media::mojom::AudioStreamFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      const std::vector<base::UnguessableToken>& source_frame_tokens,
+       CreateOutputStreamCallback created_callback) final;
+   void CreateSwitchableOutputStream(
+       mojo::PendingReceiver<media::mojom::AudioOutputStream> receiver,
+@@ -106,6 +107,7 @@ class StreamFactory final : public media::mojom::AudioStreamFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      const std::vector<base::UnguessableToken>& source_frame_tokens,
+       CreateOutputStreamCallback created_callback) final;
+   void BindMuter(
+       mojo::PendingAssociatedReceiver<media::mojom::LocalMuter> receiver,
+@@ -118,6 +120,14 @@ class StreamFactory final : public media::mojom::AudioStreamFactory {
+       uint32_t shared_memory_count,
+       const base::UnguessableToken& group_id,
+       CreateLoopbackStreamCallback created_callback) final;
++  void CreateFrameLoopbackStream(
++      mojo::PendingReceiver<media::mojom::AudioInputStream> stream_receiver,
++      mojo::PendingRemote<media::mojom::AudioInputStreamClient> client,
++      mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
++      const media::AudioParameters& params,
++      uint32_t shared_memory_count,
++      const base::UnguessableToken& frame_token,
++      CreateFrameLoopbackStreamCallback created_callback) final;
+ #if BUILDFLAG(CHROME_WIDE_ECHO_CANCELLATION)
+   std::unique_ptr<ReferenceSignalProvider> GetNewReferenceSignalProvider(
+       const media::mojom::AudioProcessingConfigPtr& processing_config,
+@@ -134,6 +144,7 @@ class StreamFactory final : public media::mojom::AudioStreamFactory {
+   void DestroyOutputStream(OutputStream* stream);
+   void DestroyMuter(base::WeakPtr<LocalMuter> muter);
+   void DestroyLoopbackStream(LoopbackStream* stream);
++  scoped_refptr<base::SequencedTaskRunner> GetLoopbackTaskRunner();
+   void CreateOutputStreamInternal(
+       mojo::PendingReceiver<media::mojom::AudioOutputStream> receiver,
+       mojo::PendingReceiver<media::mojom::DeviceSwitchInterface>
+@@ -144,6 +155,7 @@ class StreamFactory final : public media::mojom::AudioStreamFactory {
+       const std::string& output_device_id,
+       const media::AudioParameters& params,
+       const base::UnguessableToken& group_id,
++      const std::vector<base::UnguessableToken>& source_frame_tokens,
+       CreateOutputStreamCallback created_callback);
+ 
+   SEQUENCE_CHECKER(owning_sequence_);
+diff --git a/third_party/blink/public/web/web_frame.h b/third_party/blink/public/web/web_frame.h
+index 726882dee485542f95d14ceaba75691bfddb6d16..80854b816f1e6ac88f0c99ec35429b1c2152884e 100644
+--- a/third_party/blink/public/web/web_frame.h
++++ b/third_party/blink/public/web/web_frame.h
+@@ -31,6 +31,9 @@
+ #ifndef THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_H_
+ #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_FRAME_H_
+ 
++#include <optional>
++
++#include "base/token.h"
+ #include "base/unguessable_token.h"
+ #include "third_party/blink/public/common/tokens/tokens.h"
+ #include "third_party/blink/public/mojom/frame/frame.mojom-shared.h"
+@@ -189,6 +192,16 @@ class BLINK_EXPORT WebFrame {
+   // the given node is not a frame, iframe or if the frame is empty.
+   static WebFrame* FromFrameOwnerElement(const WebNode&);
+ 
++  // Tags this frame's owner element as an element capture restriction target
++  // and returns its token, reusing the existing one if already tagged. Returns
++  // nullopt if the owner element does not live in this process.
++  // The element is kept eligible for capture until
++  // ReleaseOwnerElementCaptureTarget() is called on it.
++  std::optional<base::Token> EnsureOwnerElementCaptureTarget();
++  // |owner| may no longer host a frame in this process, e.g. after its child
++  // frame moved to another process.
++  static void ReleaseOwnerElementCaptureTarget(const WebElement& owner);
++
+   // Whether the owner element of this frame is in the document tree or the
+   // shadow tree, per https://w3c.github.io/webcomponents/spec/shadow/.
+   mojom::TreeScopeType GetTreeScopeType() const { return scope_; }
+diff --git a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
+index f2efcb2f53de8f126c6bfe92f20f45126428c109..27f844004132053b4b1a5e8b485539d92ecc6781 100644
+--- a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
++++ b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
+@@ -1249,6 +1249,11 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
+   // and this needs to override those changes.
+   AdjustStyleForFirstLetter(builder, parent_style);
+ 
++  if (element && builder.StyleType() == kPseudoIdNone &&
++      element->ForcesElementCaptureEligibility()) {
++    builder.SetIsolation(EIsolation::kIsolate);
++  }
++
+   builder.SetForcesStackingContext(false);
+ 
+   // z-index is only applicable if positioned, or if a flex/grid/etc item.
+diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
+index ea4cf128bb7d96f11c343f98cc69a5ad75475eee..e2a84445814f6e414ab10784935bae4e1a508ded 100644
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -7341,8 +7341,6 @@ const TrackedElementSubRects* Element::GetTrackedElementSubRects() const {
+ }
+ 
+ void Element::SetRestrictionTargetId(std::unique_ptr<RestrictionTargetId> id) {
+-  CHECK(RuntimeEnabledFeatures::ElementCaptureEnabled(GetExecutionContext()));
+-
+   NodeRareData& rare_data = EnsureRareData();
+   CHECK(!rare_data.GetRestrictionTargetId());
+ 
+@@ -7410,6 +7408,15 @@ void Element::SetIsEligibleForElementCapture(bool value) {
+   return SetElementFlag(ElementFlags::kIsEligibleForElementCapture, value);
+ }
+ 
++void Element::SetForcesElementCaptureEligibility(bool value) {
++  if (ForcesElementCaptureEligibility() == value) {
++    return;
++  }
++  SetElementFlag(ElementFlags::kForcesElementCaptureEligibility, value);
++  SetNeedsStyleRecalc(kLocalStyleChange, StyleChangeReasonForTracing::Create(
++                                             style_change_reason::kFrame));
++}
++
+ void Element::SetCustomElementDefinition(CustomElementDefinition* definition) {
+   DCHECK(definition);
+   DCHECK(!GetCustomElementDefinition());
+diff --git a/third_party/blink/renderer/core/dom/element.h b/third_party/blink/renderer/core/dom/element.h
+index 2ec1f99d833e6ef7c91fc9b67a741b69956f730f..b181ae8ff9aa9d8d6bd3f80749f6f7c96d745dbe 100644
+--- a/third_party/blink/renderer/core/dom/element.h
++++ b/third_party/blink/renderer/core/dom/element.h
+@@ -205,8 +205,9 @@ enum class ElementFlags {
+   kIsEligibleForElementCapture = 1 << 6,
+   kHasCheckedElementCaptureEligibility = 1 << 7,
+   kIsUnboundedElementActive = 1 << 8,
++  kForcesElementCaptureEligibility = 1 << 9,
+ 
+-  kNumberOfElementFlags = 9,  // Size of bitfield used to store the flags.
++  kNumberOfElementFlags = 10,  // Size of bitfield used to store the flags.
+ };
+ 
+ enum class ShadowRootMode;
+@@ -1066,6 +1067,13 @@ class CORE_EXPORT Element : public ContainerNode {
+   // has a RestrictionTargetId.
+   void SetIsEligibleForElementCapture(bool value);
+ 
++  // Embedder-initiated element capture: isolates the element so it stays
++  // eligible regardless of the page's styles.
++  void SetForcesElementCaptureEligibility(bool value);
++  bool ForcesElementCaptureEligibility() const {
++    return HasElementFlag(ElementFlags::kForcesElementCaptureEligibility);
++  }
++
+   ShadowRoot* attachShadow(const ShadowRootInit*, ExceptionState&);
+ 
+   // Returns true if the attachment was successful.
+diff --git a/third_party/blink/renderer/core/dom/node_rare_data.h b/third_party/blink/renderer/core/dom/node_rare_data.h
+index ef20d672b3d82db6ed46303e98f5d6bc969cbe49..8e115ff961d131672a7c907b8f5013e87cbb079b 100644
+--- a/third_party/blink/renderer/core/dom/node_rare_data.h
++++ b/third_party/blink/renderer/core/dom/node_rare_data.h
+@@ -134,7 +134,7 @@ class CORE_EXPORT NodeRareData final : public GarbageCollected<NodeRareData> {
+ 
+   enum {
+     kConnectedFrameCountBits = 10,  // Must fit Page::maxNumberOfFrames.
+-    kNumberOfElementFlags = 9,
++    kNumberOfElementFlags = 10,
+     kNumberOfDynamicRestyleFlags = 14
+   };
+ 
+diff --git a/third_party/blink/renderer/core/frame/web_frame.cc b/third_party/blink/renderer/core/frame/web_frame.cc
+index cbbc4e1e82c4d251f217f5e9d3fe1d2510aee24c..658d8f5c8bba423910da4ceeb73feb93de2b59d6 100644
+--- a/third_party/blink/renderer/core/frame/web_frame.cc
++++ b/third_party/blink/renderer/core/frame/web_frame.cc
+@@ -27,6 +27,7 @@
+ #include "third_party/blink/renderer/core/page/page.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
++#include "third_party/blink/renderer/platform/restriction_target_id.h"
+ 
+ namespace blink {
+ 
+@@ -142,6 +143,29 @@ WebFrame* WebFrame::FromFrameOwnerElement(const WebNode& web_node) {
+   return nullptr;
+ }
+ 
++std::optional<base::Token> WebFrame::EnsureOwnerElementCaptureTarget() {
++  HTMLFrameOwnerElement* owner = ToCoreFrame(*this)->DeprecatedLocalOwner();
++  if (!owner) {
++    return std::nullopt;
++  }
++
++  owner->SetForcesElementCaptureEligibility(true);
++
++  if (const RestrictionTargetId* id = owner->GetRestrictionTargetId()) {
++    return id->value();
++  }
++
++  const base::Token token = base::Token::CreateRandom();
++  owner->SetRestrictionTargetId(std::make_unique<RestrictionTargetId>(token));
++  return token;
++}
++
++void WebFrame::ReleaseOwnerElementCaptureTarget(const WebElement& owner) {
++  if (Element* element = owner) {
++    element->SetForcesElementCaptureEligibility(false);
++  }
++}
++
+ bool WebFrame::IsLoading() const {
+   if (Frame* frame = ToCoreFrame(*this))
+     return frame->IsLoading();
+diff --git a/third_party/blink/renderer/modules/mediastream/media_devices.cc b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+index 4fe2cb45a008988d10548632d027e63dddbb21e9..eb760e1e8bac650c4f97818afe2a4aa5bb391e41 100644
+--- a/third_party/blink/renderer/modules/mediastream/media_devices.cc
++++ b/third_party/blink/renderer/modules/mediastream/media_devices.cc
+@@ -1625,6 +1625,17 @@ void MediaDevices::ResolveRestrictionTargetPromise(Element* element,
+   ScriptPromiseResolver<RestrictionTarget>* const resolver = it->value;
+   restriction_target_resolvers_.erase(it);
+ 
++  // The element may have been tagged for capture while this was in flight.
++  // Known design: that id isn't browser-registered, so restrictTo() rejects it.
++  if (const RestrictionTargetId* existing = element->GetRestrictionTargetId()) {
++    const String existing_str(
++        blink::TokenToGUID(existing->value()).AsLowercaseString());
++    resolver->Resolve(MakeGarbageCollected<RestrictionTarget>(existing_str));
++    RecordUma(SubCaptureTarget::Type::kRestrictionTarget,
++              ProduceTargetPromiseResult::kPromiseResolved);
++    return;
++  }
++
+   const base::Token token = SubCaptureTargetIdToToken(id);
+   if (token.is_zero()) {
+     resolver->Reject();

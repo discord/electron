@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cap-bot <cap-bot@discord.com>
+Date: Wed, 14 Oct 2026 22:50:01 +0000
+Subject: fix: use sRGB gamma and contrast boost for Linux text
+
+Chromium builds Skia on Linux with SK_GAMMA_EXPONENT=1.2 and
+SK_GAMMA_CONTRAST=0.2, and without SK_GAMMA_APPLY_TO_A8. Skia's FreeType
+backend skips gamma and contrast entirely for grayscale (A8) glyphs unless
+SK_GAMMA_APPLY_TO_A8 is defined, so grayscale text on Linux is blended with
+no correction at all. Light text on dark backgrounds looks thin and washed
+out on low-DPI displays as a result.
+
+Match the Windows tuning (sRGB gamma, contrast 1.0, which Chromium has
+shipped as the Windows default since M132) and apply it to grayscale glyphs
+as well. ChromeOS keeps the upstream values.
+
+diff --git a/skia/BUILD.gn b/skia/BUILD.gn
+index a60e48a67d9ebebf3d189ac645bc90c87b2a3703..49f4dc116313ca5d0c23d9eeabfcc776bd9e668f 100644
+--- a/skia/BUILD.gn
++++ b/skia/BUILD.gn
+@@ -110,7 +110,15 @@ config("skia_config") {
+ 
+   # `SK_GAMMA_EXPONENT` and `SK_GAMMA_CONTRAST` are settings for text
+   # blitting, chosen to approximate the system browser.
+-  if (is_linux || is_chromeos) {
++  if (is_linux) {
++    # Match the Windows tuning (sRGB gamma, contrast 1.0) and apply it to
++    # grayscale glyphs too, which FreeType otherwise leaves uncorrected.
++    defines += [
++      "SK_GAMMA_APPLY_TO_A8",
++      "SK_GAMMA_SRGB",
++      "SK_GAMMA_CONTRAST=1.0",
++    ]
++  } else if (is_chromeos) {
+     defines += [
+       "SK_GAMMA_EXPONENT=1.2",
+       "SK_GAMMA_CONTRAST=0.2",

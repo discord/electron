@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Cap <cap-bot@discord.com>
+Date: Thu, 15 Oct 2026 12:00:00 -0700
+Subject: fix: pointer lock in views that only receive forwarded input
+
+A view painted beneath another view, such as a WebContentsView whose mouse
+input is relayed to it by the view above over CDP, never receives real OS
+mouse events. Pointer lock depends on them in two ways, and both broke.
+
+Unlock restores the cursor to the position the view last saw in a real
+mouse event, which such a view never records, so every unlock warped the
+cursor to the view's top-left corner. Record the real OS cursor position
+each time a lock begins instead, so unlock returns the cursor to where that
+lock started. For views that do receive real mouse events this matches the
+last event position, as a lock is requested in response to one, and it
+brings Aura in line with macOS, which already restores the cursor to the OS
+position read at lock time.
+
+While locked, the view keeps the hidden cursor centered and turns real
+mouse input into relative movement, but only for events it receives, and
+locking does not take mouse capture, so events kept going to the window
+under the cursor. The cursor was never recentered, ran into the lock's
+clip region or the screen edge, and movement stopped. Take mouse capture
+when the lock begins, as this code did before the lock moved into
+WindowTreeHost::LockMouse. Unlocking already releases capture held by the
+locked window, and views that lock on a mouse press already hold capture
+from that press.
+
+diff --git a/content/browser/renderer_host/render_widget_host_view_event_handler.cc b/content/browser/renderer_host/render_widget_host_view_event_handler.cc
+index 0de09e162bb4b16f84a90a29c5b70505f343ee1d..c4488847b78f629d74568daae17687b2e4b2d0d8 100644
+--- a/content/browser/renderer_host/render_widget_host_view_event_handler.cc
++++ b/content/browser/renderer_host/render_widget_host_view_event_handler.cc
+@@ -32,6 +32,7 @@
+ #include "ui/base/ime/text_input_client.h"
+ #include "ui/compositor/compositor.h"
+ #include "ui/compositor/layer.h"
++#include "ui/display/screen.h"
+ #include "ui/events/blink/blink_event_util.h"
+ #include "ui/events/blink/web_input_event.h"
+ #include "ui/events/keycodes/dom/dom_code.h"
+@@ -146,10 +147,17 @@ blink::mojom::PointerLockResult RenderWidgetHostViewEventHandler::LockPointer(
+     if (!mouse_locked_unadjusted_movement_)
+       return blink::mojom::PointerLockResult::kUnsupportedOptions;
+   }
++
++  unlocked_global_mouse_position_ =
++      gfx::PointF(display::Screen::Get()->GetCursorScreenPoint());
++  unlocked_mouse_position_ = unlocked_global_mouse_position_ -
++                             window_->GetBoundsInScreen().OffsetFromOrigin();
++
+   mouse_locked_ = true;
+ 
+   aura::Window::ScopedDeleteBlocker delete_blocker(window_);
+   window_->GetHost()->LockMouse(window_);
++  window_->SetCapture();
+ 
+   if (ShouldMoveToCenter(unlocked_global_mouse_position_))
+     MoveCursorToCenter(nullptr);

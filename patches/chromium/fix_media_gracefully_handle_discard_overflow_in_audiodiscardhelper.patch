@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Scott Kidder <scott.kidder@discordapp.com>
+Date: Thu, 15 Oct 2026 15:16:25 -0700
+Subject: media: Gracefully handle discard overflow in AudioDiscardHelper
+
+Negative Matroska DiscardPadding (surfaced as skip_samples side data)
+can drive AudioDiscardHelper into two bad states:
+
+1. frames_discarded_so_far > decoder_delay_ trips CHECK_LE in
+   ProcessBuffers, killing the renderer (STATUS_BREAKPOINT). This is the
+   mechanism of a publicly circulating WebM/Vorbis crasher validated
+   against Chromium 148-155. Turn it into a graceful buffer drop, per
+   the crbug.com/987121 precedent for reachable CHECKs in this file.
+
+2. Unbounded discard_frames_ carry-over from large front skips on
+   multiple packets can starve the pipeline of decoded output
+   indefinitely (observed as a permanent renderer hang with a
+   Lavf-muxed WebM carrying -21.35ms DiscardPadding on late audio
+   packets). Cap carry-over at 30 seconds of audio.
+
+Both paths are reachable only via malformed media; well-formed files
+are unaffected.
+
+Bug: 969195
+
+diff --git a/media/base/audio_discard_helper.cc b/media/base/audio_discard_helper.cc
+index 2222572e173109534ca8d6ab41f6b4fa45dcf6db..21fa8368cd8d17e4c8a36fea5b838c15c60deef0 100644
+--- a/media/base/audio_discard_helper.cc
++++ b/media/base/audio_discard_helper.cc
+@@ -149,7 +149,15 @@ bool AudioDiscardHelper::ProcessBuffers(const TimeInfo& time_info,
+       // frames already discarded.
+       const size_t frames_discarded_so_far =
+           original_frame_count - decoded_buffer->frame_count();
+-      CHECK_LE(frames_discarded_so_far, decoder_delay_);
++      // Corrupt or hostile containers can provide discard padding which
++      // discards more frames than the decoder delay allows. Drop the buffer
++      // instead of crashing the renderer (crbug.com/987121 precedent).
++      if (frames_discarded_so_far > decoder_delay_) {
++        DLOG(ERROR) << "Discarding " << frames_discarded_so_far
++                    << " frames exceeds decoder delay of " << decoder_delay_
++                    << "; dropping buffer.";
++        return false;
++      }
+       discard_start -= frames_discarded_so_far;
+     }
+ 
+@@ -172,6 +180,17 @@ bool AudioDiscardHelper::ProcessBuffers(const TimeInfo& time_info,
+     DCHECK(!discard_frames_);
+     discard_frames_ = start_frames_to_discard - frames_to_discard;
+ 
++    // Corrupt containers can request absurd carry-over discards (e.g. large
++    // negative Matroska DiscardPadding on many packets) which would starve
++    // the pipeline of decoded output indefinitely. Cap carry-over at a
++    // generous bound of 30 seconds of audio.
++    const size_t max_carryover = static_cast<size_t>(sample_rate_) * 30u;
++    if (discard_frames_ > max_carryover) {
++      DLOG(ERROR) << "Capping excessive discard carry-over of "
++                  << discard_frames_ << " frames to " << max_carryover << ".";
++      discard_frames_ = max_carryover;
++    }
++
+     DVLOG(1) << "Front discard of " << frames_to_discard << " out of "
+              << decoded_frames << " frames starting at " << discard_start;
+ 

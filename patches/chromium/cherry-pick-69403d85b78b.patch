@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Xu Junwei <xujw89@gmail.com>
 Date: Thu, 17 Sep 2026 07:48:47 -0700
-Subject: =?UTF-8?q?[mac]=20PowerMonitorDeviceSource=EF=BC=9AHandle=20IOReg?=
- =?UTF-8?q?isterForSystemPower=20failure?=
+Subject: [mac] PowerMonitorDeviceSource: Handle IORegisterForSystemPower
+ failure
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Scott Kidder <scott.kidder@discordapp.com>
+Date: Fri, 16 Oct 2026 17:10:04 -0700
+Subject: mov: reject constant-stsz sample counts exceeding media data
+
+Crafted M4A: stsz sample_size=1 + count=178,956,969 forces ~6.6 GB
+transient renderer allocation during metadata load (CWE-400).
+Removal plan: drop once an equivalent upstream FFmpeg/Chromium fix rolls in.
+
+diff --git a/libavformat/mov.c b/libavformat/mov.c
+index 0a093d09a089e186ba57650f9abb2b25a5483a47..d1a702831d1f1e9376029d201d943f8198cdf9b5 100644
+--- a/libavformat/mov.c
++++ b/libavformat/mov.c
+@@ -4980,6 +4980,22 @@ static void mov_build_index(MOVContext *mov, AVStream *st)
+             return;
+         if (sc->sample_count >= UINT_MAX / sizeof(*sti->index_entries) - sti->nb_index_entries)
+             return;
++        if (sc->sample_count > 4194304) {
++            av_log(mov->fc, AV_LOG_ERROR,
++                   "sample count %u exceeds sanity limit\n",
++                   sc->sample_count);
++            return;
++        }
++        if (sc->stsz_sample_size > 0) {
++            int64_t input_size = avio_size(mov->fc->pb);
++            if (input_size > 0 &&
++                (uint64_t)sc->sample_count * sc->stsz_sample_size > (uint64_t)input_size) {
++                av_log(mov->fc, AV_LOG_ERROR,
++                       "sample count %u exceeds media data capacity\n",
++                       sc->sample_count);
++                return;
++            }
++        }
+         if (av_reallocp_array(&sti->index_entries,
+                               sti->nb_index_entries + sc->sample_count,
+                               sizeof(*sti->index_entries)) < 0) {
